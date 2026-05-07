@@ -1,0 +1,120 @@
+﻿<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Navalha | Area da Barbearia</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/barbearia/styles.css" />
+  <style>
+    .tabs { display:flex; gap:8px; flex-wrap:wrap; margin: 10px 0 14px; }
+    .tab-btn { border:1px solid var(--line); background:transparent; color:var(--text); border-radius:10px; padding:8px 12px; font-weight:700; cursor:pointer; }
+    .tab-btn.active { border-color:var(--cyan); color:var(--cyan); }
+    .tab-panel { display:none; }
+    .tab-panel.active { display:block; }
+    .mini-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:8px; margin-bottom:10px; }
+    .danger-row { background: rgba(255, 77, 77, 0.13); }
+  </style>
+</head>
+<body>
+  <div class="bg-overlay"></div>
+
+  <header class="topbar container">
+    <div class="logo">Navalha <span>Barbearia</span></div>
+    <nav>
+      <a href="#dashboard">Dashboard</a>
+      <a href="#gestao">Gestao</a>
+      <a href="#admin">Agendamentos</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section class="hero">
+      <p class="eyebrow">Area de operacao</p>
+      <h1>Gestao completa da barbearia.</h1>
+      <p class="subtitle">Equipe, servicos, estoque e operacao diaria em um unico painel.</p>
+    </section>
+
+    <section class="panel auth-panel">
+      <h2>Acesso Barbearia</h2>
+      <form id="loginForm" class="login-grid">
+        <input type="email" id="loginEmail" placeholder="Email" required />
+        <input type="password" id="loginPassword" placeholder="Senha" required />
+        <button type="submit" class="cta">Entrar</button>
+        <button type="button" id="logoutBtn" class="ghost">Sair</button>
+      </form>
+      <p class="meta">Demo barbeiro: carlos@barbearia.com / admin123</p>
+      <p id="authFeedback" class="feedback"></p>
+    </section>
+
+    <section id="dashboard" class="panel stats">
+      <article><h3 id="totalAgendamentos">0</h3><p>Agendamentos no mes</p></article>
+      <article><h3 id="faturamento">R$ 0,00</h3><p>Faturamento mensal</p></article>
+      <article><h3 id="comissoes">R$ 0,00</h3><p>Comissoes</p></article>
+      <article><h3 id="noShow">0</h3><p>No-show</p></article>
+    </section>
+
+    <section id="gestao" class="panel">
+      <h2>Gestao</h2>
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="tab-services">Servicos</button>
+        <button class="tab-btn" data-tab="tab-barbers">Barbeiros</button>
+        <button class="tab-btn" data-tab="tab-products">Produtos / Estoque</button>
+      </div>
+
+      <div id="tab-services" class="tab-panel active">
+        <div class="mini-grid">
+          <input id="svcName" placeholder="Nome do servico" />
+          <input id="svcPrice" type="number" step="0.01" placeholder="Preco" />
+          <input id="svcMinutes" type="number" placeholder="Minutos" />
+          <button id="addServiceBtn" class="cta">Adicionar</button>
+        </div>
+        <div id="servicesAdminTable" class="table-wrap"></div>
+      </div>
+
+      <div id="tab-barbers" class="tab-panel">
+        <div class="mini-grid">
+          <input id="barberName" placeholder="Nome" />
+          <input id="barberPhone" placeholder="Telefone" />
+          <input id="barberEmail" placeholder="Email" />
+          <input id="barberPass" placeholder="Senha" />
+          <input id="barberCommission" type="number" step="0.01" placeholder="Comissao %" />
+          <button id="addBarberBtn" class="cta">Adicionar</button>
+        </div>
+        <div id="barbersAdminTable" class="table-wrap"></div>
+      </div>
+
+      <div id="tab-products" class="tab-panel">
+        <div class="mini-grid">
+          <input id="prodName" placeholder="Produto" />
+          <input id="prodQty" type="number" placeholder="Qtd atual" />
+          <input id="prodMin" type="number" placeholder="Estoque minimo" />
+          <input id="prodUnit" placeholder="Unidade (un/pct)" />
+          <button id="addProductBtn" class="cta">Adicionar</button>
+        </div>
+        <div id="productsAdminTable" class="table-wrap"></div>
+      </div>
+      <p id="mgmtFeedback" class="feedback"></p>
+    </section>
+
+    <section id="admin" class="panel">
+      <h2>Agendamentos</h2>
+      <button id="reloadAdmin" class="ghost">Atualizar lista</button>
+      <div id="adminAppointments" class="table-wrap"></div>
+    </section>
+
+    <section id="galeria" class="panel">
+      <h2>Historico Visual</h2>
+      <div class="gallery-actions">
+        <input type="number" id="galleryClientId" min="1" placeholder="ID do cliente" />
+        <button id="loadGallery" class="ghost">Carregar</button>
+      </div>
+      <div id="galleryGrid" class="gallery"></div>
+    </section>
+  </main>
+
+  <script src="/barbearia/app.js"></script>
+</body>
+</html>
