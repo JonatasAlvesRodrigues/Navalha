@@ -188,6 +188,10 @@
   backdrop-filter: blur(10px);
 }
 
+.mobile-quick-nav[hidden] {
+  display: none !important;
+}
+
 .mobile-quick-btn {
   border: 1px solid var(--line-soft);
   border-radius: 10px;

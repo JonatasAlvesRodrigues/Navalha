@@ -84,6 +84,7 @@ async function loadSlots() {
 function setLoggedInUI(isLogged) {
   authCard.style.display = isLogged ? 'none' : '';
   bookingCard.style.display = isLogged ? '' : 'none';
+  document.body.classList.toggle('client-authenticated', isLogged);
   if (mobileQuickNav) mobileQuickNav.hidden = !isLogged;
 }
 
