@@ -18,9 +18,84 @@ const galleryGrid = document.getElementById('galleryGrid');
 const servicesAdminTable = document.getElementById('servicesAdminTable');
 const barbersAdminTable = document.getElementById('barbersAdminTable');
 const productsAdminTable = document.getElementById('productsAdminTable');
+const screenProgress = document.getElementById('screenProgress');
+const ownerLoginForm = document.getElementById('ownerLoginForm');
+const ownerAuthFeedback = document.getElementById('ownerAuthFeedback');
+const ownerBarbershopsTable = document.getElementById('ownerBarbershopsTable');
+const ownerTotalBarbershops = document.getElementById('ownerTotalBarbershops');
+const ownerActiveBarbershops = document.getElementById('ownerActiveBarbershops');
+const ownerTrialBarbershops = document.getElementById('ownerTrialBarbershops');
+const ownerTotalBarbers = document.getElementById('ownerTotalBarbers');
+const ownerMrr = document.getElementById('ownerMrr');
+const ownerPaidShops = document.getElementById('ownerPaidShops');
+const ownerConversionRate = document.getElementById('ownerConversionRate');
+const ownerChurned = document.getElementById('ownerChurned');
+const grantTrialForm = document.getElementById('grantTrialForm');
+const trialFeedback = document.getElementById('trialFeedback');
+const createBarbershopForm = document.getElementById('createBarbershopForm');
+const createBarbershopFeedback = document.getElementById('createBarbershopFeedback');
+const updateSubscriptionForm = document.getElementById('updateSubscriptionForm');
+const subscriptionFeedback = document.getElementById('subscriptionFeedback');
 
 let session = JSON.parse(localStorage.getItem(`barbearia_session_${tenantSlug}`) || 'null');
 let lastRemoved = null;
+
+const availableScreens = ['inicio', 'dashboard', 'vitrine', 'gestao', 'agendamentos', 'galeria', 'dono'];
+
+function isOwnerSession() {
+  return Boolean(session?.token && session?.user?.role === 'DONO_SISTEMA');
+}
+
+function updateOwnerUI() {
+  document.body.classList.toggle('owner-authenticated', isOwnerSession());
+}
+
+function setActiveScreen(screenName) {
+  const target = availableScreens.includes(screenName) ? screenName : 'inicio';
+  document.querySelectorAll('.screen').forEach((screen) => {
+    screen.classList.toggle('active', screen.id === `screen-${target}`);
+  });
+  document.querySelectorAll('.screen-link').forEach((link) => {
+    link.classList.toggle('active', link.dataset.screen === target);
+  });
+}
+
+function playScreenProgress() {
+  if (!screenProgress) return;
+  screenProgress.classList.add('active');
+  screenProgress.style.width = '0%';
+  requestAnimationFrame(() => {
+    screenProgress.style.width = '68%';
+  });
+  setTimeout(() => {
+    screenProgress.style.width = '100%';
+  }, 150);
+  setTimeout(() => {
+    screenProgress.classList.remove('active');
+    screenProgress.style.width = '0%';
+  }, 420);
+}
+
+function initScreenNavigation() {
+  const screenFromHash = (window.location.hash || '').replace('#', '');
+  setActiveScreen(screenFromHash || 'inicio');
+
+  document.querySelectorAll('.screen-link').forEach((link) => {
+    link.addEventListener('click', () => {
+      const screen = link.dataset.screen || 'inicio';
+      playScreenProgress();
+      setActiveScreen(screen);
+      window.location.hash = screen;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+
+  window.addEventListener('hashchange', () => {
+    const hashScreen = (window.location.hash || '').replace('#', '');
+    playScreenProgress();
+    setActiveScreen(hashScreen || 'inicio');
+  });
+}
 
 function brl(v) {
   return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -62,12 +137,59 @@ async function login(email, password) {
   session = data;
   localStorage.setItem(`barbearia_session_${tenantSlug}`, JSON.stringify(data));
   authFeedback.textContent = `Conectado como ${data.user.fullName} (${data.user.role}).`;
+  updateOwnerUI();
+}
+
+async function ownerLogin(email, password) {
+  const data = await fetchJson('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, tenantSlug }),
+  });
+  session = data;
+  localStorage.setItem(`barbearia_session_${tenantSlug}`, JSON.stringify(data));
+  ownerAuthFeedback.textContent = `Conectado como ${data.user.fullName}.`;
+  authFeedback.textContent = 'Sessão atual migrada para modo Dono do Sistema.';
+  updateOwnerUI();
 }
 
 function logout() {
   session = null;
   localStorage.removeItem(`barbearia_session_${tenantSlug}`);
   authFeedback.textContent = 'Sessão encerrada.';
+  ownerAuthFeedback.textContent = '';
+  trialFeedback.textContent = '';
+  updateOwnerUI();
+  setActiveScreen('inicio');
+}
+
+function ownerTable(rows) {
+  if (!rows.length) return '<p>Nenhuma barbearia cadastrada.</p>';
+  return `<table><thead><tr><th>ID</th><th>Nome</th><th>Slug</th><th>Ativa</th><th>Plano</th><th>Preço</th><th>Status</th><th>Trial até</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r.id}</td><td>${r.name}</td><td>${r.slug}</td><td>${r.is_active ? 'SIM' : 'NAO'}</td><td>${r.plan_name || 'TRIAL'}</td><td>${brl(r.monthly_price || 0)}</td><td>${r.subscription_status || 'TRIAL'}</td><td>${r.trial_ends_at ? new Date(r.trial_ends_at).toLocaleDateString('pt-BR') : '-'}</td></tr>`).join('')}</tbody></table>`;
+}
+
+async function loadOwnerOverview() {
+  if (!isOwnerSession()) return;
+  const data = await fetchJson('/api/owner/overview');
+  ownerTotalBarbershops.textContent = data.totalBarbershops;
+  ownerActiveBarbershops.textContent = data.activeBarbershops;
+  ownerTrialBarbershops.textContent = data.trialBarbershops;
+  ownerTotalBarbers.textContent = data.totalBarbers;
+}
+
+async function loadOwnerBarbershops() {
+  if (!isOwnerSession()) return;
+  const rows = await fetchJson('/api/owner/barbershops');
+  ownerBarbershopsTable.innerHTML = ownerTable(rows);
+}
+
+async function loadOwnerFinance() {
+  if (!isOwnerSession()) return;
+  const data = await fetchJson('/api/owner/finance');
+  ownerMrr.textContent = brl(data.mrr);
+  ownerPaidShops.textContent = data.paidShops;
+  ownerConversionRate.textContent = `${data.conversionRate}%`;
+  ownerChurned.textContent = data.churned;
 }
 
 function showUndo() {
@@ -115,12 +237,21 @@ async function loadDashboard() {
 async function loadServices() {
   const allServices = await fetchJson(`/api/services?tenantSlug=${tenantSlug}`);
   servicesGrid.innerHTML = allServices.map((s) => `<article class="card"><h3>${s.name}</h3><p class="price">${brl(s.price)}</p><p class="meta">${s.estimated_minutes} min</p><p>${s.description || ''}</p></article>`).join('');
+  if (!session?.token || session.user.role !== 'BARBEIRO') {
+    servicesAdminTable.innerHTML = '<p>Faça login como barbeiro para gerenciar serviços.</p>';
+    return;
+  }
   servicesAdminTable.innerHTML = `<table><thead><tr><th>ID</th><th>Nome</th><th>Preco</th><th>Min</th><th>Ações</th></tr></thead><tbody>${allServices.map((s) => `<tr><td>${s.id}</td><td><input id="svc-name-${s.id}" value="${s.name}" /></td><td><input id="svc-price-${s.id}" type="number" step="0.01" value="${Number(s.price)}" /></td><td><input id="svc-min-${s.id}" type="number" value="${s.estimated_minutes}" /></td><td><button class='ghost' onclick='saveService(${s.id})'>Salvar</button> <button class='ghost' onclick='deleteService(${s.id})'>Remover</button></td></tr>`).join('')}</tbody></table>`;
 }
 
 async function loadBarbers() {
   const barbers = await fetchJson(`/api/barbers?tenantSlug=${tenantSlug}`);
   barbersGrid.innerHTML = barbers.map((b) => `<article class="card"><h3>${b.full_name}</h3><p class="meta">Comissão: ${b.commission_percent}%</p><p class="meta">Contato: ${b.phone || '-'}</p></article>`).join('');
+
+  if (!session?.token || session.user.role !== 'BARBEIRO') {
+    barbersAdminTable.innerHTML = '<p>Faça login como barbeiro para gerenciar equipe.</p>';
+    return;
+  }
 
   const adminBarbers = await fetchJson('/api/admin/barbers');
   barbersAdminTable.innerHTML = `<table><thead><tr><th>Nome</th><th>Telefone</th><th>Comissão %</th><th>Ações</th></tr></thead><tbody>${adminBarbers.map((b) => `<tr><td><input id="barber-name-${b.id}" value="${b.full_name}" /></td><td><input id="barber-phone-${b.id}" value="${maskPhone(b.phone || '')}" /></td><td><input id="barber-comm-${b.id}" type="number" step="0.01" value="${b.commission_percent}" /></td><td><button class='ghost' onclick='saveBarber(${b.id})'>Salvar</button> <button class='ghost' onclick='removeBarber(${b.id})'>Remover</button></td></tr>`).join('')}</tbody></table>`;
@@ -132,6 +263,10 @@ async function loadBarbers() {
 }
 
 async function loadProducts() {
+  if (!session?.token || session.user.role !== 'BARBEIRO') {
+    productsAdminTable.innerHTML = '<p>Faça login como barbeiro para gerenciar produtos.</p>';
+    return;
+  }
   const rows = await fetchJson('/api/admin/products');
   productsAdminTable.innerHTML = `<table><thead><tr><th>Produto</th><th>Atual</th><th>Mín</th><th>Un</th><th>Ações</th></tr></thead><tbody>${rows.map((p) => `<tr class='${p.low_stock ? 'danger-row' : ''}'><td><input id="prod-name-${p.id}" value="${p.name}" /></td><td><input id="prod-qty-${p.id}" type="number" value="${p.current_qty}" /></td><td><input id="prod-min-${p.id}" type="number" value="${p.min_qty}" /></td><td><input id="prod-unit-${p.id}" value="${p.unit}" /></td><td><button class='ghost' onclick='saveProduct(${p.id})'>Salvar</button> <button class='ghost' onclick='removeProduct(${p.id})'>Remover</button></td></tr>`).join('')}</tbody></table>`;
 }
@@ -222,7 +357,7 @@ window.saveBarber = async (id) => {
         commissionPercent: Number(document.getElementById(`barber-comm-${id}`).value),
       }),
     });
-    mgmtFeedback.textContent = 'Barbeiro atualizado.';
+    mgmtFeedback.textContent = 'Barbeiro atualizado. Comissões rebalanceadas automaticamente para totalizar 100%.';
     await loadBarbers();
   } catch (e) { mgmtFeedback.textContent = e.message; }
 };
@@ -289,7 +424,7 @@ document.getElementById('addBarberBtn').addEventListener('click', async () => {
         commissionPercent: Number(document.getElementById('barberCommission').value),
       }),
     });
-    mgmtFeedback.textContent = 'Barbeiro adicionado.';
+    mgmtFeedback.textContent = 'Barbeiro adicionado. Comissões rebalanceadas automaticamente para totalizar 100%.';
     await loadBarbers();
   } catch (e) { mgmtFeedback.textContent = e.message; }
 });
@@ -318,12 +453,105 @@ document.getElementById('loginForm').addEventListener('submit', async (event) =>
   event.preventDefault();
   try {
     await login(document.getElementById('loginEmail').value, document.getElementById('loginPassword').value);
-    await Promise.all([loadDashboard(), loadAdminAppointments(), loadBarbers(), loadServices(), loadProducts()]);
+    await Promise.all([loadBarbers(), loadServices()]);
+    if (session?.user?.role === 'BARBEIRO') {
+      await Promise.all([loadDashboard(), loadAdminAppointments(), loadProducts()]);
+    }
+    if (isOwnerSession()) {
+      await Promise.all([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
+      setActiveScreen('dono');
+      window.location.hash = 'dono';
+    }
   } catch (error) { authFeedback.textContent = error.message; }
 });
 
 document.getElementById('logoutBtn').addEventListener('click', logout);
 document.getElementById('reloadAdmin').addEventListener('click', loadAdminAppointments);
+
+ownerLoginForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    await ownerLogin(
+      document.getElementById('ownerEmail').value,
+      document.getElementById('ownerPassword').value
+    );
+    await Promise.all([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
+    setActiveScreen('dono');
+    window.location.hash = 'dono';
+  } catch (error) {
+    ownerAuthFeedback.textContent = error.message;
+  }
+});
+
+grantTrialForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    if (!isOwnerSession()) throw new Error('Faça login como dono para conceder trial.');
+    const slug = document.getElementById('trialBarbershopSlug').value.trim();
+    const days = Number(document.getElementById('trialDays').value || 7);
+    const notes = document.getElementById('trialNotes').value.trim();
+    const result = await fetchJson('/api/owner/trials/grant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ barbershopSlug: slug, days, notes }),
+    });
+    trialFeedback.textContent = `Trial concedido para ${result.slug} até ${new Date(result.trial_ends_at).toLocaleDateString('pt-BR')}.`;
+    await Promise.all([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
+  } catch (error) {
+    trialFeedback.textContent = error.message;
+  }
+});
+
+createBarbershopForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    if (!isOwnerSession()) throw new Error('Faça login como dono para criar barbearias.');
+    const payload = {
+      name: document.getElementById('newShopName').value.trim(),
+      slug: document.getElementById('newShopSlug').value.trim(),
+      ownerFullName: document.getElementById('newOwnerName').value.trim(),
+      ownerPhone: document.getElementById('newOwnerPhone').value.trim(),
+      ownerEmail: document.getElementById('newOwnerEmail').value.trim() || null,
+      ownerPassword: document.getElementById('newOwnerPassword').value,
+      commissionPercent: Number(document.getElementById('newOwnerCommission').value || 100),
+    };
+    const result = await fetchJson('/api/owner/barbershops', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    createBarbershopFeedback.textContent = `Barbearia criada: ${result.name} (${result.slug}).`;
+    await Promise.all([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
+  } catch (error) {
+    createBarbershopFeedback.textContent = error.message;
+  }
+});
+
+updateSubscriptionForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    if (!isOwnerSession()) throw new Error('Faça login como dono para atualizar planos.');
+    const id = Number(document.getElementById('subShopId').value);
+    if (!id) throw new Error('Informe o ID da barbearia.');
+    const isActiveRaw = document.getElementById('subIsActive').value;
+    const payload = {
+      planName: document.getElementById('subPlanName').value.trim() || null,
+      monthlyPrice: document.getElementById('subMonthlyPrice').value ? Number(document.getElementById('subMonthlyPrice').value) : null,
+      status: document.getElementById('subStatus').value || null,
+      isActive: isActiveRaw === '' ? null : isActiveRaw === 'true',
+      notes: document.getElementById('subNotes').value.trim() || null,
+    };
+    await fetchJson(`/api/owner/barbershops/${id}/subscription`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    subscriptionFeedback.textContent = `Assinatura da barbearia ${id} atualizada com sucesso.`;
+    await Promise.all([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
+  } catch (error) {
+    subscriptionFeedback.textContent = error.message;
+  }
+});
 
 loadGalleryBtn.addEventListener('click', async () => {
   const clientId = Number(galleryClientId.value);
@@ -342,10 +570,17 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 
 (async function init() {
   try {
+    updateOwnerUI();
+    initScreenNavigation();
     await Promise.all([loadServices(), loadBarbers()]);
     if (session?.token && session.user.role === 'BARBEIRO') {
       authFeedback.textContent = `Sessão ativa: ${session.user.fullName} (${session.user.role}).`;
       await Promise.all([loadDashboard(), loadAdminAppointments(), loadProducts()]);
+    }
+    if (isOwnerSession()) {
+      ownerAuthFeedback.textContent = `Sessão ativa: ${session.user.fullName}.`;
+      await Promise.all([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
+      setActiveScreen('dono');
     }
   } catch (error) {
     mgmtFeedback.textContent = `Erro ao iniciar app: ${error.message}`;

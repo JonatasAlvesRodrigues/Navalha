@@ -16,7 +16,11 @@ body {
   margin: 0;
   font-family: 'Barlow', sans-serif;
   color: var(--text);
-  background: radial-gradient(circle at 20% 5%, #12202f, #070b10 55%), var(--bg);
+  background:
+    linear-gradient(120deg, rgba(4, 8, 12, 0.9), rgba(7, 11, 16, 0.88)),
+    radial-gradient(circle at 20% 5%, #12202f, #070b10 55%),
+    url('https://images.unsplash.com/photo-1622288432450-277d0fef5ed6?auto=format&fit=crop&w=1920&q=80') center/cover fixed no-repeat,
+    var(--bg);
   min-height: 100vh;
 }
 
@@ -24,7 +28,10 @@ body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(160deg, rgba(255,106,0,0.1), transparent 36%), linear-gradient(20deg, rgba(28,183,216,0.14), transparent 45%);
+  background:
+    linear-gradient(160deg, rgba(255,106,0,0.14), transparent 36%),
+    linear-gradient(20deg, rgba(28,183,216,0.16), transparent 45%),
+    linear-gradient(180deg, rgba(0,0,0,0.18), rgba(0,0,0,0.42));
 }
 
 .container { width: min(1120px, 92vw); margin: 0 auto; }
@@ -157,6 +164,10 @@ select[multiple] { min-height: 110px; }
 }
 
 @media (max-width: 760px) {
+  body {
+    background-attachment: scroll;
+  }
+
   .topbar { flex-direction: column; gap: 8px; }
   nav a { margin: 0 7px; }
   .stats { grid-template-columns: 1fr 1fr; }

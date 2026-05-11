@@ -16,6 +16,7 @@ const noShow = document.getElementById('noShow');
 const galleryClientId = document.getElementById('galleryClientId');
 const loadGalleryBtn = document.getElementById('loadGallery');
 const galleryGrid = document.getElementById('galleryGrid');
+const tenantSlug = window.location.pathname.split('/')[2] || 'navalha-demo';
 
 let session = JSON.parse(localStorage.getItem('session') || 'null');
 
@@ -41,7 +42,7 @@ async function login(email, password) {
   const data = await fetchJson('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ tenantSlug, email, password }),
   });
 
   session = data;
@@ -65,7 +66,7 @@ async function loadDashboard() {
 }
 
 async function loadServices() {
-  const allServices = await fetchJson('/api/services');
+  const allServices = await fetchJson(`/api/services?tenantSlug=${tenantSlug}`);
   servicesGrid.innerHTML = allServices.map((s) => `
     <article class="card">
       <h3>${s.name}</h3>
@@ -81,7 +82,7 @@ async function loadServices() {
 }
 
 async function loadBarbers() {
-  const barbers = await fetchJson('/api/barbers');
+  const barbers = await fetchJson(`/api/barbers?tenantSlug=${tenantSlug}`);
 
   barbersGrid.innerHTML = barbers.map((b) => `
     <article class="card">
@@ -105,7 +106,7 @@ async function loadSlots() {
     return;
   }
 
-  const data = await fetchJson(`/api/appointments/available-slots?barberId=${barberId}&date=${date}`);
+  const data = await fetchJson(`/api/appointments/available-slots?tenantSlug=${tenantSlug}&barberId=${barberId}&date=${date}`);
   slotSelect.innerHTML = data.slots.length
     ? data.slots.map((s) => `<option value="${s}">${s}</option>`).join('')
     : '<option value="">Sem horários</option>';

@@ -16,6 +16,8 @@ const reminderTimezone = process.env.REMINDER_TIMEZONE || 'America/Sao_Paulo';
 const reminderProvider = process.env.REMINDER_PROVIDER || 'evolution';
 const reminderThreshold = Number(process.env.REMINDER_THRESHOLD_DAYS_BEFORE || 2);
 const enableReminderCron = String(process.env.REMINDER_CRON_ENABLED || 'true') === 'true';
+const ownerEmail = process.env.OWNER_EMAIL || 'dono@navalha.com';
+const ownerPassword = process.env.OWNER_PASSWORD || 'owner123';
 
 app.use(cors());
 app.use(express.json());
@@ -54,6 +56,16 @@ function barberOnly(req, res, next) {
   return next();
 }
 
+function clientOnly(req, res, next) {
+  if (req.user.role !== 'CLIENTE') return res.status(403).json({ error: 'Acesso permitido apenas para clientes.' });
+  return next();
+}
+
+function ownerOnly(req, res, next) {
+  if (req.user.role !== 'DONO_SISTEMA') return res.status(403).json({ error: 'Acesso permitido apenas para o dono do sistema.' });
+  return next();
+}
+
 async function resolveTenantIdBySlug(slug) {
   if (!slug) return null;
   const { rows } = await pool.query('SELECT id, slug FROM barbershops WHERE slug = $1 AND is_active = true', [slug]);
@@ -62,6 +74,95 @@ async function resolveTenantIdBySlug(slug) {
 
 function tenantSlugFromReq(req) {
   return req.headers['x-tenant-slug'] || req.query.tenantSlug || req.body?.tenantSlug || null;
+}
+
+async function ensureOwnerTables() {
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS platform_trials (
+      id BIGSERIAL PRIMARY KEY,
+      barbershop_id BIGINT NOT NULL UNIQUE,
+      granted_by VARCHAR(140),
+      notes TEXT,
+      trial_starts_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      trial_ends_at TIMESTAMPTZ NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`
+  );
+
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS platform_subscriptions (
+      id BIGSERIAL PRIMARY KEY,
+      barbershop_id BIGINT NOT NULL UNIQUE,
+      plan_name VARCHAR(60) NOT NULL DEFAULT 'TRIAL',
+      monthly_price NUMERIC(10,2) NOT NULL DEFAULT 0,
+      status VARCHAR(30) NOT NULL DEFAULT 'TRIAL',
+      billing_started_at TIMESTAMPTZ,
+      canceled_at TIMESTAMPTZ,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`
+  );
+}
+
+async function rebalanceBarberCommissions(conn, tenantId, fixedBarberId, fixedCommission) {
+  const fixed = Number(fixedCommission);
+  if (!Number.isFinite(fixed) || fixed < 0 || fixed > 100) {
+    throw new Error('commissionPercent deve estar entre 0 e 100.');
+  }
+
+  await conn.query(
+    `UPDATE barbers
+     SET commission_percent = $1
+     WHERE user_id = $2`,
+    [fixed, fixedBarberId]
+  );
+
+  const { rows: others } = await conn.query(
+    `SELECT b.user_id, b.commission_percent
+     FROM barbers b
+     JOIN users u ON u.id = b.user_id
+     WHERE u.barbershop_id = $1
+       AND u.is_active = true
+       AND b.user_id <> $2`,
+    [tenantId, fixedBarberId]
+  );
+
+  if (!others.length) return;
+
+  const remaining = 100 - fixed;
+  const totalOthers = others.reduce((acc, row) => acc + Number(row.commission_percent || 0), 0);
+
+  let allocations;
+  if (totalOthers <= 0) {
+    const equal = remaining / others.length;
+    allocations = others.map((row) => ({ userId: row.user_id, value: equal }));
+  } else {
+    allocations = others.map((row) => ({
+      userId: row.user_id,
+      value: (remaining * Number(row.commission_percent || 0)) / totalOthers,
+    }));
+  }
+
+  const rounded = allocations.map((a) => ({
+    userId: a.userId,
+    value: Number(a.value.toFixed(2)),
+  }));
+
+  const sumRounded = rounded.reduce((acc, row) => acc + row.value, 0);
+  const delta = Number((remaining - sumRounded).toFixed(2));
+  rounded[0].value = Number((rounded[0].value + delta).toFixed(2));
+
+  for (const item of rounded) {
+    await conn.query(
+      `UPDATE barbers
+       SET commission_percent = $1
+       WHERE user_id = $2`,
+      [item.value, item.userId]
+    );
+  }
 }
 
 app.get('/api/health', async (_req, res) => {
@@ -77,6 +178,30 @@ app.post('/api/auth/login', async (req, res) => {
   const { email, phone, password } = req.body;
   const identifier = (email || phone || '').trim();
   const tenantSlug = tenantSlugFromReq(req);
+
+  if (email && String(email).trim().toLowerCase() === ownerEmail.toLowerCase() && String(password || '') === ownerPassword) {
+    const ownerUser = {
+      id: 0,
+      role: 'DONO_SISTEMA',
+      full_name: 'Dono do Sistema',
+      email: ownerEmail,
+      phone: null,
+      tenant_id: null,
+      tenant_slug: null,
+    };
+    const ownerToken = createToken(ownerUser);
+    return res.json({
+      token: ownerToken,
+      user: {
+        id: 0,
+        fullName: 'Dono do Sistema',
+        email: ownerEmail,
+        phone: null,
+        role: 'DONO_SISTEMA',
+        tenantSlug: null,
+      },
+    });
+  }
 
   if (!identifier || !password || !tenantSlug) {
     return res.status(400).json({ error: 'tenantSlug, telefone/email e senha são obrigatórios.' });
@@ -115,12 +240,214 @@ app.post('/api/auth/login', async (req, res) => {
   });
 });
 
+app.post('/api/auth/owner-login', async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const password = String(req.body?.password || '');
+  if (!email || !password) return res.status(400).json({ error: 'Email e senha são obrigatórios.' });
+  if (email !== ownerEmail.toLowerCase() || password !== ownerPassword) {
+    return res.status(401).json({ error: 'Credenciais de dono inválidas.' });
+  }
+
+  const ownerUser = {
+    id: 0,
+    role: 'DONO_SISTEMA',
+    full_name: 'Dono do Sistema',
+    email: ownerEmail,
+    phone: null,
+    tenant_id: null,
+    tenant_slug: null,
+  };
+  const token = createToken(ownerUser);
+  return res.json({
+    token,
+    user: {
+      id: 0,
+      fullName: 'Dono do Sistema',
+      email: ownerEmail,
+      phone: null,
+      role: 'DONO_SISTEMA',
+      tenantSlug: null,
+    },
+  });
+});
+
+app.post('/api/auth/register-client', async (req, res) => {
+  const { fullName, phone, email, password } = req.body;
+  const tenantSlug = tenantSlugFromReq(req);
+
+  if (!tenantSlug || !fullName || !phone || !password) {
+    return res.status(400).json({ error: 'tenantSlug, fullName, phone e password são obrigatórios.' });
+  }
+
+  const tenant = await resolveTenantIdBySlug(tenantSlug);
+  if (!tenant) return res.status(404).json({ error: 'Barbearia não encontrada.' });
+
+  const normalizedPhone = String(phone).replace(/\D/g, '');
+  if (normalizedPhone.length < 10) {
+    return res.status(400).json({ error: 'Telefone inválido.' });
+  }
+
+  const existing = await pool.query(
+    `SELECT 1
+     FROM users
+     WHERE barbershop_id = $1
+       AND (phone = $2 OR ($3 IS NOT NULL AND email = $3))`,
+    [tenant.id, normalizedPhone, email || null]
+  );
+  if (existing.rowCount) {
+    return res.status(409).json({ error: 'Já existe conta com esse telefone/email nesta barbearia.' });
+  }
+
+  const hash = await bcrypt.hash(password, 10);
+  const conn = await pool.connect();
+  try {
+    await conn.query('BEGIN');
+    const userInsert = await conn.query(
+      `INSERT INTO users (full_name, email, phone, role, password_hash, barbershop_id, is_active)
+       VALUES ($1, $2, $3, 'CLIENTE', $4, $5, true)
+       RETURNING id, full_name, email, phone, role`,
+      [fullName, email || null, normalizedPhone, hash, tenant.id]
+    );
+    const user = userInsert.rows[0];
+
+    await conn.query(
+      `INSERT INTO clients (user_id)
+       VALUES ($1)`,
+      [user.id]
+    );
+    await conn.query('COMMIT');
+
+    const token = createToken({
+      ...user,
+      tenant_id: tenant.id,
+      tenant_slug: tenant.slug,
+    });
+
+    return res.status(201).json({
+      token,
+      user: {
+        id: user.id,
+        fullName: user.full_name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        tenantSlug: tenant.slug,
+      },
+    });
+  } catch (error) {
+    await conn.query('ROLLBACK');
+    return res.status(400).json({ error: error.message });
+  } finally {
+    conn.release();
+  }
+});
+
 app.get('/api/auth/me', authRequired, async (req, res) => {
   const { rows } = await pool.query(
     'SELECT id, full_name, email, phone, role FROM users WHERE id = $1 AND barbershop_id = $2',
     [req.user.id, req.user.tenantId]
   );
   if (!rows.length) return res.status(404).json({ error: 'Usuário não encontrado.' });
+  return res.json(rows[0]);
+});
+
+app.get('/api/client/overview', authRequired, clientOnly, async (req, res) => {
+  const clientId = req.user.id;
+  const tenantId = req.user.tenantId;
+
+  const [{ rows: totalsRows }, { rows: nextRows }] = await Promise.all([
+    pool.query(
+      `SELECT
+        COUNT(*)::int AS total_appointments,
+        COUNT(*) FILTER (WHERE status = 'CONCLUIDO')::int AS completed_appointments,
+        COUNT(*) FILTER (WHERE status = 'CANCELADO')::int AS canceled_appointments
+       FROM appointments
+       WHERE client_id = $1
+         AND barbershop_id = $2`,
+      [clientId, tenantId]
+    ),
+    pool.query(
+      `SELECT
+        a.id,
+        a.scheduled_start,
+        a.scheduled_end,
+        a.status,
+        b.full_name AS barber_name,
+        COALESCE(SUM(aps.unit_price), 0)::numeric(10,2) AS total
+       FROM appointments a
+       JOIN users b ON b.id = a.barber_id
+       LEFT JOIN appointment_services aps ON aps.appointment_id = a.id
+       WHERE a.client_id = $1
+         AND a.barbershop_id = $2
+         AND a.status IN ('PENDENTE', 'PAGO')
+         AND a.scheduled_start >= NOW()
+       GROUP BY a.id, a.scheduled_start, a.scheduled_end, a.status, b.full_name
+       ORDER BY a.scheduled_start ASC
+       LIMIT 1`,
+      [clientId, tenantId]
+    ),
+  ]);
+
+  return res.json({
+    totalAppointments: totalsRows[0]?.total_appointments || 0,
+    completedAppointments: totalsRows[0]?.completed_appointments || 0,
+    canceledAppointments: totalsRows[0]?.canceled_appointments || 0,
+    nextAppointment: nextRows[0] || null,
+  });
+});
+
+app.get('/api/client/appointments', authRequired, clientOnly, async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit || 20), 1), 100);
+  const clientId = req.user.id;
+  const tenantId = req.user.tenantId;
+
+  const { rows } = await pool.query(
+    `SELECT
+      a.id,
+      a.status,
+      a.scheduled_start,
+      a.scheduled_end,
+      a.notes,
+      b.full_name AS barber_name,
+      COALESCE(SUM(aps.unit_price), 0)::numeric(10,2) AS total,
+      ARRAY_REMOVE(ARRAY_AGG(DISTINCT s.name), NULL) AS services
+     FROM appointments a
+     JOIN users b ON b.id = a.barber_id
+     LEFT JOIN appointment_services aps ON aps.appointment_id = a.id
+     LEFT JOIN services s ON s.id = aps.service_id
+     WHERE a.client_id = $1
+       AND a.barbershop_id = $2
+     GROUP BY a.id, a.status, a.scheduled_start, a.scheduled_end, a.notes, b.full_name
+     ORDER BY a.scheduled_start DESC
+     LIMIT $3`,
+    [clientId, tenantId, limit]
+  );
+
+  return res.json(rows);
+});
+
+app.patch('/api/client/appointments/:id/cancel', authRequired, clientOnly, async (req, res) => {
+  const appointmentId = Number(req.params.id);
+  if (!Number.isInteger(appointmentId) || appointmentId <= 0) {
+    return res.status(400).json({ error: 'ID inválido.' });
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE appointments
+     SET status = 'CANCELADO', updated_at = NOW()
+     WHERE id = $1
+       AND client_id = $2
+       AND barbershop_id = $3
+       AND status IN ('PENDENTE', 'PAGO')
+       AND scheduled_start > NOW() + INTERVAL '1 hour'
+     RETURNING id, status`,
+    [appointmentId, req.user.id, req.user.tenantId]
+  );
+
+  if (!rows.length) {
+    return res.status(400).json({ error: 'Não foi possível cancelar. Verifique status e antecedência mínima de 1 hora.' });
+  }
+
   return res.json(rows[0]);
 });
 
@@ -153,6 +480,42 @@ app.get('/api/barbers', async (req, res) => {
     [tenant.id]
   );
   res.json(rows);
+});
+
+app.get('/api/gallery/:clientId', authRequired, async (req, res) => {
+  const clientId = Number(req.params.clientId);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: 'clientId inválido.' });
+  }
+
+  const tenantId = req.user.tenantId;
+  const isClientSelf = req.user.role === 'CLIENTE' && req.user.id === clientId;
+
+  if (!isClientSelf) {
+    const allowedForBarber = await pool.query(
+      `SELECT 1
+       FROM clients c
+       JOIN users u ON u.id = c.user_id
+       WHERE c.user_id = $1
+         AND u.barbershop_id = $2`,
+      [clientId, tenantId]
+    );
+
+    if (!allowedForBarber.rowCount || req.user.role !== 'BARBEIRO') {
+      return res.status(403).json({ error: 'Acesso não autorizado para este cliente.' });
+    }
+  }
+
+  const { rows } = await pool.query(
+    `SELECT id, client_id, appointment_id, image_url, caption, created_at
+     FROM visual_history
+     WHERE client_id = $1
+     ORDER BY created_at DESC
+     LIMIT 50`,
+    [clientId]
+  );
+
+  return res.json(rows);
 });
 
 app.get('/api/appointments/available-slots', async (req, res) => {
@@ -354,8 +717,12 @@ app.get('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
 
 app.post('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
   const { fullName, phone, email, password, commissionPercent, specialty } = req.body;
+  const commission = Number(commissionPercent);
   if (!fullName || !phone || !password || commissionPercent == null) {
     return res.status(400).json({ error: 'fullName, phone, password e commissionPercent são obrigatórios.' });
+  }
+  if (!Number.isFinite(commission) || commission < 0 || commission > 100) {
+    return res.status(400).json({ error: 'commissionPercent deve estar entre 0 e 100.' });
   }
 
   const hash = await bcrypt.hash(password, 10);
@@ -373,10 +740,12 @@ app.post('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
     await conn.query(
       `INSERT INTO barbers (user_id, commission_percent, specialty)
        VALUES ($1, $2, $3)`,
-      [user.id, commissionPercent, specialty || null]
+      [user.id, commission, specialty || null]
     );
+
+    await rebalanceBarberCommissions(conn, req.user.tenantId, user.id, commission);
     await conn.query('COMMIT');
-    res.status(201).json({ ...user, commission_percent: commissionPercent, specialty: specialty || null });
+    res.status(201).json({ ...user, commission_percent: commission, specialty: specialty || null });
   } catch (error) {
     await conn.query('ROLLBACK');
     res.status(400).json({ error: error.message });
@@ -389,6 +758,12 @@ app.patch('/api/admin/barbers/:id', authRequired, barberOnly, async (req, res) =
   const id = Number(req.params.id);
   const { fullName, phone, email, commissionPercent, specialty, isActive } = req.body;
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'ID inválido.' });
+  if (commissionPercent != null) {
+    const commission = Number(commissionPercent);
+    if (!Number.isFinite(commission) || commission < 0 || commission > 100) {
+      return res.status(400).json({ error: 'commissionPercent deve estar entre 0 e 100.' });
+    }
+  }
 
   const conn = await pool.connect();
   try {
@@ -411,6 +786,11 @@ app.patch('/api/admin/barbers/:id', authRequired, barberOnly, async (req, res) =
        RETURNING commission_percent, specialty`,
       [commissionPercent ?? null, specialty ?? null, id]
     );
+
+    if (commissionPercent != null) {
+      await rebalanceBarberCommissions(conn, req.user.tenantId, id, Number(commissionPercent));
+    }
+
     await conn.query('COMMIT');
     if (!rows.length) return res.status(404).json({ error: 'Barbeiro não encontrado.' });
     res.json({ ok: true, ...rows[0] });
@@ -538,6 +918,253 @@ app.post('/api/admin/reminders/sweep', authRequired, barberOnly, async (req, res
   return res.json(result);
 });
 
+app.get('/api/owner/overview', authRequired, ownerOnly, async (_req, res) => {
+  const [{ rows: shops }, { rows: barbers }, { rows: trials }] = await Promise.all([
+    pool.query(
+      `SELECT
+        COUNT(*)::int AS total_barbershops,
+        COUNT(*) FILTER (WHERE is_active = true)::int AS active_barbershops
+       FROM barbershops`
+    ),
+    pool.query(
+      `SELECT COUNT(*)::int AS total_barbers
+       FROM users
+       WHERE role = 'BARBEIRO' AND is_active = true`
+    ),
+    pool.query(
+      `SELECT COUNT(*)::int AS trial_barbershops
+       FROM platform_trials
+       WHERE is_active = true
+         AND trial_ends_at >= NOW()`
+    ),
+  ]);
+
+  return res.json({
+    totalBarbershops: shops[0]?.total_barbershops || 0,
+    activeBarbershops: shops[0]?.active_barbershops || 0,
+    totalBarbers: barbers[0]?.total_barbers || 0,
+    trialBarbershops: trials[0]?.trial_barbershops || 0,
+  });
+});
+
+app.get('/api/owner/barbershops', authRequired, ownerOnly, async (_req, res) => {
+  const { rows } = await pool.query(
+    `SELECT
+      b.id,
+      b.name,
+      b.slug,
+      b.is_active,
+      s.plan_name,
+      s.monthly_price,
+      s.status AS subscription_status,
+      t.trial_starts_at,
+      t.trial_ends_at,
+      t.is_active AS trial_active,
+      t.notes AS trial_notes
+     FROM barbershops b
+     LEFT JOIN platform_subscriptions s ON s.barbershop_id = b.id
+     LEFT JOIN platform_trials t ON t.barbershop_id = b.id
+     ORDER BY b.id DESC`
+  );
+  return res.json(rows);
+});
+
+app.post('/api/owner/barbershops', authRequired, ownerOnly, async (req, res) => {
+  const { name, slug, ownerFullName, ownerPhone, ownerEmail, ownerPassword, commissionPercent } = req.body;
+  if (!name || !slug || !ownerFullName || !ownerPhone || !ownerPassword) {
+    return res.status(400).json({ error: 'name, slug, ownerFullName, ownerPhone e ownerPassword são obrigatórios.' });
+  }
+
+  const normalizedSlug = String(slug).trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  if (!normalizedSlug) return res.status(400).json({ error: 'Slug inválido.' });
+
+  const commission = Number(commissionPercent ?? 100);
+  if (!Number.isFinite(commission) || commission < 0 || commission > 100) {
+    return res.status(400).json({ error: 'commissionPercent deve estar entre 0 e 100.' });
+  }
+
+  const hash = await bcrypt.hash(String(ownerPassword), 10);
+  const conn = await pool.connect();
+  try {
+    await conn.query('BEGIN');
+    const shopInsert = await conn.query(
+      `INSERT INTO barbershops (name, slug, is_active)
+       VALUES ($1, $2, true)
+       RETURNING id, name, slug, is_active`,
+      [String(name).trim(), normalizedSlug]
+    );
+    const shop = shopInsert.rows[0];
+
+    const userInsert = await conn.query(
+      `INSERT INTO users (full_name, email, phone, role, password_hash, barbershop_id, is_active)
+       VALUES ($1, $2, $3, 'BARBEIRO', $4, $5, true)
+       RETURNING id`,
+      [String(ownerFullName).trim(), ownerEmail ? String(ownerEmail).trim() : null, String(ownerPhone).trim(), hash, shop.id]
+    );
+
+    await conn.query(
+      `INSERT INTO barbers (user_id, commission_percent, specialty)
+       VALUES ($1, $2, $3)`,
+      [userInsert.rows[0].id, commission, 'Responsável']
+    );
+
+    await conn.query(
+      `INSERT INTO platform_subscriptions (barbershop_id, plan_name, monthly_price, status, notes)
+       VALUES ($1, 'TRIAL', 0, 'TRIAL', 'Criada pelo dono do sistema')
+       ON CONFLICT (barbershop_id) DO NOTHING`,
+      [shop.id]
+    );
+
+    await conn.query('COMMIT');
+    return res.status(201).json(shop);
+  } catch (error) {
+    await conn.query('ROLLBACK');
+    return res.status(400).json({ error: error.message });
+  } finally {
+    conn.release();
+  }
+});
+
+app.patch('/api/owner/barbershops/:id/subscription', authRequired, ownerOnly, async (req, res) => {
+  const id = Number(req.params.id);
+  const { planName, monthlyPrice, status, notes, isActive } = req.body;
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'ID inválido.' });
+  if (status && !['TRIAL', 'ATIVA', 'BLOQUEADA', 'CANCELADA'].includes(status)) {
+    return res.status(400).json({ error: 'status inválido.' });
+  }
+
+  const price = monthlyPrice == null ? null : Number(monthlyPrice);
+  if (price != null && (!Number.isFinite(price) || price < 0)) {
+    return res.status(400).json({ error: 'monthlyPrice inválido.' });
+  }
+
+  const conn = await pool.connect();
+  try {
+    await conn.query('BEGIN');
+    await conn.query(
+      `UPDATE barbershops
+       SET is_active = COALESCE($1, is_active)
+       WHERE id = $2`,
+      [isActive ?? null, id]
+    );
+
+    const { rows } = await conn.query(
+      `INSERT INTO platform_subscriptions (barbershop_id, plan_name, monthly_price, status, notes, billing_started_at, canceled_at, updated_at)
+       VALUES ($1, COALESCE($2, 'TRIAL'), COALESCE($3, 0), COALESCE($4, 'TRIAL'), $5,
+               CASE WHEN $4 = 'ATIVA' THEN NOW() ELSE NULL END,
+               CASE WHEN $4 = 'CANCELADA' THEN NOW() ELSE NULL END,
+               NOW())
+       ON CONFLICT (barbershop_id)
+       DO UPDATE SET
+         plan_name = COALESCE(EXCLUDED.plan_name, platform_subscriptions.plan_name),
+         monthly_price = COALESCE(EXCLUDED.monthly_price, platform_subscriptions.monthly_price),
+         status = COALESCE(EXCLUDED.status, platform_subscriptions.status),
+         notes = COALESCE(EXCLUDED.notes, platform_subscriptions.notes),
+         billing_started_at = CASE
+           WHEN COALESCE(EXCLUDED.status, platform_subscriptions.status) = 'ATIVA'
+             THEN COALESCE(platform_subscriptions.billing_started_at, NOW())
+           ELSE platform_subscriptions.billing_started_at
+         END,
+         canceled_at = CASE
+           WHEN COALESCE(EXCLUDED.status, platform_subscriptions.status) = 'CANCELADA' THEN NOW()
+           ELSE platform_subscriptions.canceled_at
+         END,
+         updated_at = NOW()
+       RETURNING barbershop_id, plan_name, monthly_price, status`,
+      [id, planName ?? null, price, status ?? null, notes ?? null]
+    );
+
+    await conn.query('COMMIT');
+    return res.json({ ok: true, ...rows[0] });
+  } catch (error) {
+    await conn.query('ROLLBACK');
+    return res.status(400).json({ error: error.message });
+  } finally {
+    conn.release();
+  }
+});
+
+app.get('/api/owner/finance', authRequired, ownerOnly, async (_req, res) => {
+  const [{ rows: mrrRows }, { rows: trialRows }, { rows: churnRows }] = await Promise.all([
+    pool.query(
+      `SELECT
+        COALESCE(SUM(monthly_price) FILTER (WHERE status = 'ATIVA' AND monthly_price > 0), 0)::numeric(10,2) AS mrr,
+        COUNT(*) FILTER (WHERE status = 'ATIVA')::int AS paid_shops
+       FROM platform_subscriptions`
+    ),
+    pool.query(
+      `SELECT
+        COUNT(*)::int AS total_trials,
+        COUNT(*) FILTER (
+          WHERE EXISTS (
+            SELECT 1
+            FROM platform_subscriptions s
+            WHERE s.barbershop_id = t.barbershop_id
+              AND s.status = 'ATIVA'
+              AND s.monthly_price > 0
+          )
+        )::int AS converted_trials
+       FROM platform_trials t`
+    ),
+    pool.query(
+      `SELECT COUNT(*)::int AS churned
+       FROM platform_subscriptions
+       WHERE status = 'CANCELADA'`
+    ),
+  ]);
+
+  const mrr = Number(mrrRows[0]?.mrr || 0);
+  const totalTrials = Number(trialRows[0]?.total_trials || 0);
+  const convertedTrials = Number(trialRows[0]?.converted_trials || 0);
+  const conversionRate = totalTrials > 0 ? Number(((convertedTrials / totalTrials) * 100).toFixed(2)) : 0;
+
+  return res.json({
+    mrr,
+    paidShops: Number(mrrRows[0]?.paid_shops || 0),
+    totalTrials,
+    convertedTrials,
+    conversionRate,
+    churned: Number(churnRows[0]?.churned || 0),
+  });
+});
+
+app.post('/api/owner/trials/grant', authRequired, ownerOnly, async (req, res) => {
+  const slug = String(req.body?.barbershopSlug || '').trim();
+  const days = Number(req.body?.days);
+  const notes = String(req.body?.notes || '').trim() || null;
+  if (!slug) return res.status(400).json({ error: 'barbershopSlug é obrigatório.' });
+  if (!Number.isInteger(days) || days < 1 || days > 90) return res.status(400).json({ error: 'days deve ser um inteiro entre 1 e 90.' });
+
+  const { rows: shopRows } = await pool.query('SELECT id, slug FROM barbershops WHERE slug = $1', [slug]);
+  if (!shopRows.length) return res.status(404).json({ error: 'Barbearia não encontrada para esse slug.' });
+  const shop = shopRows[0];
+
+  const { rows } = await pool.query(
+    `INSERT INTO platform_trials (barbershop_id, granted_by, notes, trial_starts_at, trial_ends_at, is_active, updated_at)
+     VALUES ($1, $2, $3, NOW(), NOW() + ($4::text || ' days')::interval, true, NOW())
+     ON CONFLICT (barbershop_id)
+     DO UPDATE SET
+       granted_by = EXCLUDED.granted_by,
+       notes = EXCLUDED.notes,
+       trial_starts_at = NOW(),
+       trial_ends_at = NOW() + ($4::text || ' days')::interval,
+       is_active = true,
+       updated_at = NOW()
+     RETURNING barbershop_id, trial_starts_at, trial_ends_at, is_active`,
+    [shop.id, req.user.fullName || 'Dono do Sistema', notes, days]
+  );
+
+  return res.status(201).json({
+    ok: true,
+    slug: shop.slug,
+    ...rows[0],
+  });
+});
+
+app.use('/api', (_req, res) => {
+  return res.status(404).json({ error: 'Endpoint de API não encontrado.' });
+});
+
 app.use('/cliente', express.static(path.join(__dirname, '..', 'frontend', 'cliente')));
 app.use('/barbearia', express.static(path.join(__dirname, '..', 'frontend', 'barbearia')));
 app.use('/t/:tenantSlug/cliente', express.static(path.join(__dirname, '..', 'frontend', 'cliente')));
@@ -550,6 +1177,10 @@ app.get('/t/:tenantSlug/cliente', (_req, res) => res.sendFile(path.join(__dirnam
 app.get('/t/:tenantSlug/barbearia', (_req, res) => res.sendFile(path.join(__dirname, '..', 'frontend', 'barbearia', 'index.html')));
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, '..', 'frontend', 'index.html')));
 app.use((_req, res) => res.redirect('/'));
+
+ensureOwnerTables()
+  .then(() => console.log('[OWNER] platform_trials table ready'))
+  .catch((error) => console.error('[OWNER] table init error:', error.message));
 
 app.listen(port, () => {
   console.log(`Servidor rodando em http://localhost:${port}`);

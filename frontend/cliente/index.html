@@ -4,31 +4,26 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Navalha | Cliente</title>
+  <meta name="theme-color" content="#0b0b0d" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/svg+xml" href="/barbearia/favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;600;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700&family=Sora:wght@400;500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/barbearia/styles.css" />
-  <style>
-    .client-wrap { max-width: 680px; margin: 0 auto; }
-    .client-hero { padding: 20px 0 10px; }
-    .client-hero h1 { font-family:'Bebas Neue',sans-serif; font-size: clamp(2.4rem, 8vw, 4rem); margin:0; }
-    .client-hero p { color: var(--muted); margin: 6px 0 0; }
-    .client-grid { display:grid; gap:10px; }
-    .client-grid label { display:grid; gap:6px; font-weight:700; }
-    .client-grid input,.client-grid select,.client-grid button{ width:100%; border-radius:10px; padding:11px; }
-    .client-grid button{ border:0; font-weight:800; }
-    .subtle { color: var(--muted); font-size:.9rem; }
-    .quick-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-    @media (max-width:760px){ .quick-row{ grid-template-columns:1fr; } }
-  </style>
+  <link rel="stylesheet" href="/cliente/styles.css" />
 </head>
 <body>
+  <div class="pwa-install-wrap">
+    <button id="installAppBtn" class="ghost pwa-install-btn" type="button" hidden>Instalar App</button>
+    <p id="installAppTip" class="pwa-install-tip" hidden></p>
+  </div>
   <div class="bg-overlay"></div>
   <main class="container client-wrap">
     <section class="client-hero">
       <p class="eyebrow">Navalha Cliente</p>
       <h1>Agende em menos de 1 minuto.</h1>
-      <p>Login rapido com telefone e senha.</p>
+      <p>Login rápido com telefone e senha.</p>
     </section>
 
     <section class="panel" id="authCard">
@@ -42,6 +37,23 @@
         </label>
         <button class="cta" type="submit">Entrar e Agendar</button>
       </form>
+      <hr class="auth-divider" />
+      <h2 class="form-title-reset">Criar Conta</h2>
+      <form id="clientRegisterForm" class="client-grid">
+        <label>Nome completo
+          <input id="regFullName" type="text" placeholder="Seu nome" required />
+        </label>
+        <label>Telefone
+          <input id="regPhone" type="tel" placeholder="Ex: 11999998888" required />
+        </label>
+        <label>Email (opcional)
+          <input id="regEmail" type="email" placeholder="voce@email.com" />
+        </label>
+        <label>Senha
+          <input id="regPassword" type="password" placeholder="Crie sua senha" required />
+        </label>
+        <button class="ghost" type="submit">Cadastrar e Entrar</button>
+      </form>
       <p class="subtle">Demo cliente: 11988887777 / cliente123</p>
       <p id="authMsg" class="feedback"></p>
     </section>
@@ -51,25 +63,59 @@
         <h2>Seu Agendamento</h2>
         <button id="logoutBtn" class="ghost" type="button">Sair</button>
       </div>
+      <p id="clientProfile" class="profile-line"></p>
 
-      <form class="client-grid" onsubmit="return false;">
+      <div class="kpi-grid" id="section-overview">
+        <article class="kpi">
+          <span class="subtle">Total</span>
+          <strong id="kpiTotal">0</strong>
+        </article>
+        <article class="kpi">
+          <span class="subtle">Concluídos</span>
+          <strong id="kpiDone">0</strong>
+        </article>
+        <article class="kpi">
+          <span class="subtle">Cancelados</span>
+          <strong id="kpiCanceled">0</strong>
+        </article>
+      </div>
+
+      <div id="nextAppointment" class="next-appointment">
+        <strong>Próximo agendamento</strong>
+        <p class="subtle">Nenhum horário futuro no momento.</p>
+      </div>
+
+      <form class="client-grid" id="section-new-booking" onsubmit="return false;">
         <label>Barbeiro
           <select id="barberId"></select>
         </label>
         <label>Data
           <input id="date" type="date" />
         </label>
-        <label>Horario
+        <label>Horário
           <select id="slot"></select>
         </label>
-        <label>Servicos
+        <label>Serviços
           <select id="services" multiple></select>
         </label>
         <button id="confirmBtn" class="cta" type="button">Confirmar Agendamento</button>
       </form>
       <p id="bookingMsg" class="feedback"></p>
+
+      <h3 class="section-title" id="section-history-title">Seus últimos agendamentos</h3>
+      <div id="appointmentsList" class="appointments-list"></div>
     </section>
   </main>
+  <nav id="mobileQuickNav" class="mobile-quick-nav" hidden>
+    <button type="button" class="mobile-quick-btn active" data-target="section-new-booking">Novo</button>
+    <button type="button" class="mobile-quick-btn" data-target="nextAppointment">Próximo</button>
+    <button type="button" class="mobile-quick-btn" data-target="section-history-title">Histórico</button>
+    <button type="button" class="mobile-quick-btn" data-action="install">Instalar</button>
+  </nav>
   <script src="/cliente/app.js"></script>
+  <script src="/pwa-register.js"></script>
 </body>
 </html>
+
+
+
