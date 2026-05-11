@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'navalha-v1';
+﻿const CACHE_VERSION = 'navalha-v2';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const STATIC_ASSETS = [
   '/',
@@ -6,11 +6,9 @@ const STATIC_ASSETS = [
   '/styles.css',
   '/manifest.webmanifest',
   '/pwa/icon.svg',
-  '/cliente',
   '/cliente/index.html',
   '/cliente/styles.css',
   '/cliente/app.js',
-  '/barbearia',
   '/barbearia/index.html',
   '/barbearia/styles.css',
   '/barbearia/app.js',
@@ -43,10 +41,28 @@ self.addEventListener('fetch', (event) => {
 
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
-      fetch(req).catch(() => caches.match(req).then((cached) => cached || new Response(JSON.stringify({ error: 'Sem conex�o.' }), {
+      fetch(req).catch(() => caches.match(req).then((cached) => cached || new Response(JSON.stringify({ error: 'Sem conexão.' }), {
         status: 503,
         headers: { 'Content-Type': 'application/json' }
       })))
+    );
+    return;
+  }
+
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req).catch(async () => {
+        const cached = await caches.match(req);
+        if (cached) return cached;
+
+        if (url.pathname.startsWith('/barbearia') || url.pathname.startsWith('/t/')) {
+          return caches.match('/barbearia/index.html');
+        }
+        if (url.pathname.startsWith('/cliente')) {
+          return caches.match('/cliente/index.html');
+        }
+        return caches.match('/index.html');
+      })
     );
     return;
   }
@@ -55,8 +71,10 @@ self.addEventListener('fetch', (event) => {
     caches.match(req).then((cached) => {
       if (cached) return cached;
       return fetch(req).then((response) => {
-        const copy = response.clone();
-        caches.open(STATIC_CACHE).then((cache) => cache.put(req, copy)).catch(() => null);
+        if (response && response.ok && !response.redirected) {
+          const copy = response.clone();
+          caches.open(STATIC_CACHE).then((cache) => cache.put(req, copy)).catch(() => null);
+        }
         return response;
       });
     })
