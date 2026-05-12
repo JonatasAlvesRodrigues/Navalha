@@ -209,30 +209,6 @@ app.post('/api/auth/login', async (req, res) => {
   const identifier = (email || phone || '').trim();
   const tenantSlug = tenantSlugFromReq(req);
 
-  if (email && String(email).trim().toLowerCase() === ownerEmail.toLowerCase() && String(password || '') === ownerPassword) {
-    const ownerUser = {
-      id: 0,
-      role: 'DONO_SISTEMA',
-      full_name: 'Dono do Sistema',
-      email: ownerEmail,
-      phone: null,
-      tenant_id: null,
-      tenant_slug: null,
-    };
-    const ownerToken = createToken(ownerUser);
-    return res.json({
-      token: ownerToken,
-      user: {
-        id: 0,
-        fullName: 'Dono do Sistema',
-        email: ownerEmail,
-        phone: null,
-        role: 'DONO_SISTEMA',
-        tenantSlug: null,
-      },
-    });
-  }
-
   if (!identifier || !password || !tenantSlug) {
     return res.status(400).json({ error: 'tenantSlug, telefone/email e senha são obrigatórios.' });
   }

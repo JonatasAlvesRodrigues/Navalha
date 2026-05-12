@@ -170,10 +170,10 @@ async function login(email, password) {
 }
 
 async function ownerLogin(email, password) {
-  const data = await fetchJson('/api/auth/login', {
+  const data = await fetchJson('/api/auth/owner-login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, tenantSlug }),
+    body: JSON.stringify({ email, password }),
   });
   session = data;
   localStorage.setItem(`barbearia_session_${tenantSlug}`, JSON.stringify(data));
