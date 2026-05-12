@@ -11,10 +11,9 @@ const kpiTotal = document.getElementById('kpiTotal');
 const kpiDone = document.getElementById('kpiDone');
 const kpiCanceled = document.getElementById('kpiCanceled');
 
-const phoneInput = document.getElementById('phone');
+const loginEmailInput = document.getElementById('loginEmail');
 const passwordInput = document.getElementById('password');
 const regFullName = document.getElementById('regFullName');
-const regPhone = document.getElementById('regPhone');
 const regEmail = document.getElementById('regEmail');
 const regPassword = document.getElementById('regPassword');
 
@@ -47,10 +46,6 @@ function todayLocal() {
   const n = new Date();
   const off = n.getTimezoneOffset();
   return new Date(n.getTime() - off * 60000).toISOString().split('T')[0];
-}
-
-function normalizePhone(value) {
-  return (value || '').replace(/\D/g, '');
 }
 
 function brl(value) {
@@ -219,7 +214,7 @@ document.getElementById('clientLoginForm').addEventListener('submit', async (e) 
     const data = await fetchJson('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantSlug, phone: normalizePhone(phoneInput.value), password: passwordInput.value }),
+      body: JSON.stringify({ tenantSlug, email: loginEmailInput.value.trim(), password: passwordInput.value }),
     });
 
     if (data.user.role !== 'CLIENTE') throw new Error('Este acesso é exclusivo para clientes.');
@@ -248,8 +243,7 @@ document.getElementById('clientRegisterForm').addEventListener('submit', async (
       body: JSON.stringify({
         tenantSlug,
         fullName: regFullName.value.trim(),
-        phone: normalizePhone(regPhone.value),
-        email: regEmail.value.trim() || null,
+        email: regEmail.value.trim().toLowerCase(),
         password: regPassword.value,
       }),
     });

@@ -277,24 +277,30 @@ app.post('/api/auth/register-client', async (req, res) => {
     const { fullName, phone, email, password } = req.body;
     const tenantSlug = tenantSlugFromReq(req);
 
-    if (!tenantSlug || !fullName || !phone || !password) {
-      return res.status(400).json({ error: 'tenantSlug, fullName, phone e password são obrigatórios.' });
+    if (!tenantSlug || !fullName || !password) {
+      return res.status(400).json({ error: 'tenantSlug, fullName e password são obrigatórios.' });
     }
 
     const tenant = await resolveTenantIdBySlug(tenantSlug);
     if (!tenant) return res.status(404).json({ error: 'Barbearia não encontrada.' });
 
-    const normalizedPhone = String(phone).replace(/\D/g, '');
-    if (normalizedPhone.length < 10) {
-      return res.status(400).json({ error: 'Telefone inválido.' });
+    const normalizedEmail = email ? String(email).trim().toLowerCase() : null;
+    const normalizedPhone = phone ? String(phone).replace(/\D/g, '') : null;
+
+    if (!normalizedEmail && !normalizedPhone) {
+      return res.status(400).json({ error: 'Informe ao menos email ou telefone.' });
+    }
+
+    if (normalizedPhone && normalizedPhone.length < 10) {
+      return res.status(400).json({ error: 'Telefone inválido (mínimo de 10 dígitos).' });
     }
 
     const existing = await pool.query(
       `SELECT 1
        FROM users
        WHERE barbershop_id = $1
-         AND (phone = $2 OR ($3 IS NOT NULL AND email = $3))`,
-      [tenant.id, normalizedPhone, email || null]
+         AND (($2 IS NOT NULL AND phone = $2) OR ($3 IS NOT NULL AND email = $3))`,
+      [tenant.id, normalizedPhone, normalizedEmail]
     );
     if (existing.rowCount) {
       return res.status(409).json({ error: 'Já existe conta com esse telefone/email nesta barbearia.' });
@@ -307,7 +313,7 @@ app.post('/api/auth/register-client', async (req, res) => {
       `INSERT INTO users (full_name, email, phone, role, password_hash, barbershop_id, is_active)
        VALUES ($1, $2, $3, 'CLIENTE', $4, $5, true)
        RETURNING id, full_name, email, phone, role`,
-      [fullName, email || null, normalizedPhone, hash, tenant.id]
+      [fullName, normalizedEmail, normalizedPhone, hash, tenant.id]
     );
     const user = userInsert.rows[0];
 
