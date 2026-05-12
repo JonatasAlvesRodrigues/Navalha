@@ -304,7 +304,7 @@ async function loadBarbers() {
   barbersGrid.innerHTML = barbers.map((b) => {
     const whatsapp = unmaskPhone(b.whatsapp || b.phone || '');
     const instagram = normalizeInstagram(b.instagram || '');
-    return `<article class="card"><h3>${b.full_name}</h3><p class="meta">Comissão: ${b.commission_percent}%</p><p class="meta">Contato: ${b.phone || '-'}</p><p class="meta">WhatsApp: ${whatsapp ? `<a href="https://wa.me/55${whatsapp}" target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a>` : '-'}</p><p class="meta">Instagram: ${instagram ? `<a href="https://instagram.com/${instagram}" target="_blank" rel="noopener noreferrer">@${instagram}</a>` : '-'}</p></article>`;
+    return `<article class="card"><h3>${b.full_name}</h3><p class="meta">Comissão: ${b.commission_percent}%</p><p class="meta">Cidade: ${b.city || '-'}</p><p class="meta">Contato: ${b.phone || '-'}</p><p class="meta">WhatsApp: ${whatsapp ? `<a href="https://wa.me/55${whatsapp}" target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a>` : '-'}</p><p class="meta">Instagram: ${instagram ? `<a href="https://instagram.com/${instagram}" target="_blank" rel="noopener noreferrer">@${instagram}</a>` : '-'}</p></article>`;
   }).join('');
 
   if (!session?.token || session.user.role !== 'BARBEIRO') {
@@ -313,7 +313,7 @@ async function loadBarbers() {
   }
 
   const adminBarbers = await fetchJson('/api/admin/barbers');
-  barbersAdminTable.innerHTML = `<table><thead><tr><th>Nome</th><th>Telefone</th><th>WhatsApp</th><th>Instagram</th><th>Comissão %</th><th>Ações</th></tr></thead><tbody>${adminBarbers.map((b) => `<tr><td><input id="barber-name-${b.id}" value="${b.full_name}" /></td><td><input id="barber-phone-${b.id}" value="${maskPhone(b.phone || '')}" /></td><td><input id="barber-whatsapp-${b.id}" value="${maskPhone(b.whatsapp || '')}" /></td><td><input id="barber-instagram-${b.id}" value="${b.instagram ? `@${String(b.instagram).replace(/^@+/, '')}` : ''}" /></td><td><input id="barber-comm-${b.id}" type="number" step="0.01" value="${b.commission_percent}" /></td><td><button class='ghost' onclick='saveBarber(${b.id})'>Salvar</button> <button class='ghost' onclick='removeBarber(${b.id})'>Remover</button></td></tr>`).join('')}</tbody></table>`;
+  barbersAdminTable.innerHTML = `<table><thead><tr><th>Nome</th><th>Cidade</th><th>Telefone</th><th>WhatsApp</th><th>Instagram</th><th>Comissão %</th><th>Ações</th></tr></thead><tbody>${adminBarbers.map((b) => `<tr><td><input id="barber-name-${b.id}" value="${b.full_name}" /></td><td><input id="barber-city-${b.id}" value="${b.city || ''}" /></td><td><input id="barber-phone-${b.id}" value="${maskPhone(b.phone || '')}" /></td><td><input id="barber-whatsapp-${b.id}" value="${maskPhone(b.whatsapp || '')}" /></td><td><input id="barber-instagram-${b.id}" value="${b.instagram ? `@${String(b.instagram).replace(/^@+/, '')}` : ''}" /></td><td><input id="barber-comm-${b.id}" type="number" step="0.01" value="${b.commission_percent}" /></td><td><button class='ghost' onclick='saveBarber(${b.id})'>Salvar</button> <button class='ghost' onclick='removeBarber(${b.id})'>Remover</button></td></tr>`).join('')}</tbody></table>`;
 
   adminBarbers.forEach((b) => {
     const el = document.getElementById(`barber-phone-${b.id}`);
@@ -398,6 +398,7 @@ window.removeBarber = async (id) => {
       payload: {
         fullName: document.getElementById(`barber-name-${id}`).value,
         phone: unmaskPhone(document.getElementById(`barber-phone-${id}`).value),
+        city: document.getElementById(`barber-city-${id}`).value.trim(),
         whatsapp: unmaskPhone(document.getElementById(`barber-whatsapp-${id}`).value),
         instagram: normalizeInstagram(document.getElementById(`barber-instagram-${id}`).value),
         password: 'temp123',
@@ -417,6 +418,7 @@ window.saveBarber = async (id) => {
       body: JSON.stringify({
         fullName: document.getElementById(`barber-name-${id}`).value,
         phone: unmaskPhone(document.getElementById(`barber-phone-${id}`).value),
+        city: document.getElementById(`barber-city-${id}`).value.trim(),
         whatsapp: unmaskPhone(document.getElementById(`barber-whatsapp-${id}`).value),
         instagram: normalizeInstagram(document.getElementById(`barber-instagram-${id}`).value),
         commissionPercent: Number(document.getElementById(`barber-comm-${id}`).value),
@@ -484,6 +486,7 @@ document.getElementById('addBarberBtn').addEventListener('click', async () => {
       body: JSON.stringify({
         fullName: document.getElementById('barberName').value,
         phone: unmaskPhone(document.getElementById('barberPhone').value),
+        city: document.getElementById('barberCity').value.trim(),
         whatsapp: unmaskPhone(document.getElementById('barberWhatsapp').value),
         instagram: normalizeInstagram(document.getElementById('barberInstagram').value),
         email: document.getElementById('barberEmail').value,

@@ -12,6 +12,7 @@ const kpiDone = document.getElementById('kpiDone');
 const kpiCanceled = document.getElementById('kpiCanceled');
 
 const barberSelect = document.getElementById('barberId');
+const barberCityFilter = document.getElementById('barberCityFilter');
 const dateInput = document.getElementById('date');
 const slotSelect = document.getElementById('slot');
 const servicesCatalog = document.getElementById('servicesCatalog');
@@ -100,8 +101,15 @@ async function loadBarbershopsByCity() {
 }
 
 async function loadBarbers() {
-  const rows = await fetchJson(`/api/barbers?tenantSlug=${activeTenantSlug()}`);
+  const city = barberCityFilter?.value?.trim() || '';
+  const rows = await fetchJson(`/api/barbers?tenantSlug=${activeTenantSlug()}${city ? `&city=${encodeURIComponent(city)}` : ''}`);
   barberSelect.innerHTML = rows.map((b) => `<option value="${b.id}">${b.full_name}</option>`).join('');
+}
+
+async function loadBarberCities() {
+  if (!barberCityFilter) return;
+  const rows = await fetchJson('/api/public/cities');
+  barberCityFilter.innerHTML = '<option value="">Todas as cidades</option>' + rows.map((city) => `<option value="${city}">${city}</option>`).join('');
 }
 
 async function loadServices() {
@@ -302,7 +310,7 @@ document.getElementById('clientLoginForm').addEventListener('submit', async (e) 
     setLoggedInUI(true);
 
     dateInput.value = todayLocal();
-    await Promise.all([loadBarbers(), loadServices()]);
+    await Promise.all([loadBarberCities(), loadBarbers(), loadServices()]);
     await loadSlots();
     await loadClientArea();
   } catch (err) {
@@ -339,7 +347,7 @@ document.getElementById('clientRegisterForm').addEventListener('submit', async (
     setLoggedInUI(true);
 
     dateInput.value = todayLocal();
-    await Promise.all([loadBarbers(), loadServices()]);
+    await Promise.all([loadBarberCities(), loadBarbers(), loadServices()]);
     await loadSlots();
     await loadClientArea();
   } catch (err) {
@@ -365,10 +373,19 @@ barbershopSlugSelect?.addEventListener('change', async () => {
   setLoggedInUI(false);
   authMsg.textContent = `Barbearia selecionada: ${nextSlug}`;
   try {
-    await Promise.all([loadBarbers(), loadServices()]);
+    await Promise.all([loadBarberCities(), loadBarbers(), loadServices()]);
     await loadSlots();
   } catch (_e) {
     // noop
+  }
+});
+
+barberCityFilter?.addEventListener('change', async () => {
+  try {
+    await loadBarbers();
+    await loadSlots();
+  } catch (err) {
+    bookingMsg.textContent = err.message;
   }
 });
 
@@ -426,7 +443,7 @@ document.getElementById('logoutBtn').addEventListener('click', () => {
     currentClient = me;
     setLoggedInUI(true);
     dateInput.value = todayLocal();
-    await Promise.all([loadBarbers(), loadServices()]);
+    await Promise.all([loadBarberCities(), loadBarbers(), loadServices()]);
     await loadSlots();
     await loadClientArea();
   } catch {
