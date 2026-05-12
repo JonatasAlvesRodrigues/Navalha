@@ -84,11 +84,16 @@ async function loadServices() {
 async function loadBarbers() {
   const barbers = await fetchJson(`/api/barbers?tenantSlug=${tenantSlug}`);
 
+  const normalizePhone = (value) => String(value || '').replace(/\D/g, '');
+  const normalizeInstagram = (value) => String(value || '').trim().replace(/^@+/, '');
+
   barbersGrid.innerHTML = barbers.map((b) => `
     <article class="card">
       <h3>${b.full_name}</h3>
       <p class="meta">Comissão fixa: ${b.commission_percent}%</p>
       <p class="meta">Contato: ${b.phone || '-'}</p>
+      <p class="meta">WhatsApp: ${normalizePhone(b.whatsapp || b.phone) ? `<a href="https://wa.me/55${normalizePhone(b.whatsapp || b.phone)}" target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a>` : '-'}</p>
+      <p class="meta">Instagram: ${normalizeInstagram(b.instagram) ? `<a href="https://instagram.com/${normalizeInstagram(b.instagram)}" target="_blank" rel="noopener noreferrer">@${normalizeInstagram(b.instagram)}</a>` : '-'}</p>
     </article>
   `).join('');
 

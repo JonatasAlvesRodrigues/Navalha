@@ -83,6 +83,8 @@ function tenantSlugFromReq(req) {
 async function ensureOwnerTables() {
   await pool.query(`ALTER TABLE barbershops ADD COLUMN IF NOT EXISTS city VARCHAR(120)`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE barbers ADD COLUMN IF NOT EXISTS whatsapp VARCHAR(30)`);
+  await pool.query(`ALTER TABLE barbers ADD COLUMN IF NOT EXISTS instagram VARCHAR(120)`);
 
   await pool.query(
     `CREATE TABLE IF NOT EXISTS platform_trials (
@@ -575,7 +577,7 @@ app.get('/api/barbers', async (req, res) => {
   if (!tenant) return res.status(400).json({ error: 'tenantSlug inválido.' });
 
   const { rows } = await pool.query(
-    `SELECT u.id, u.full_name, u.phone, b.commission_percent, b.specialty, b.photo_url
+    `SELECT u.id, u.full_name, u.phone, b.commission_percent, b.specialty, b.photo_url, b.whatsapp, b.instagram
      FROM barbers b
      JOIN users u ON u.id = b.user_id
      WHERE u.is_active = true AND u.barbershop_id = $1
@@ -808,7 +810,7 @@ app.delete('/api/admin/services/:id', authRequired, barberOnly, async (req, res)
 
 app.get('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT u.id, u.full_name, u.phone, u.email, b.commission_percent, b.specialty
+    `SELECT u.id, u.full_name, u.phone, u.email, b.commission_percent, b.specialty, b.whatsapp, b.instagram
      FROM barbers b
      JOIN users u ON u.id = b.user_id
      WHERE u.barbershop_id = $1 AND u.is_active = true
@@ -819,7 +821,7 @@ app.get('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
 });
 
 app.post('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
-  const { fullName, phone, email, password, commissionPercent, specialty } = req.body;
+  const { fullName, phone, email, password, commissionPercent, specialty, whatsapp, instagram } = req.body;
   const commission = Number(commissionPercent);
   if (!fullName || !phone || !password || commissionPercent == null) {
     return res.status(400).json({ error: 'fullName, phone, password e commissionPercent são obrigatórios.' });
@@ -841,14 +843,14 @@ app.post('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
     const user = userInsert.rows[0];
 
     await conn.query(
-      `INSERT INTO barbers (user_id, commission_percent, specialty)
-       VALUES ($1, $2, $3)`,
-      [user.id, commission, specialty || null]
+      `INSERT INTO barbers (user_id, commission_percent, specialty, whatsapp, instagram)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [user.id, commission, specialty || null, whatsapp || null, instagram || null]
     );
 
     await rebalanceBarberCommissions(conn, req.user.tenantId, user.id, commission);
     await conn.query('COMMIT');
-    res.status(201).json({ ...user, commission_percent: commission, specialty: specialty || null });
+    res.status(201).json({ ...user, commission_percent: commission, specialty: specialty || null, whatsapp: whatsapp || null, instagram: instagram || null });
   } catch (error) {
     await conn.query('ROLLBACK');
     res.status(400).json({ error: error.message });
@@ -859,7 +861,7 @@ app.post('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
 
 app.patch('/api/admin/barbers/:id', authRequired, barberOnly, async (req, res) => {
   const id = Number(req.params.id);
-  const { fullName, phone, email, commissionPercent, specialty, isActive } = req.body;
+  const { fullName, phone, email, commissionPercent, specialty, isActive, whatsapp, instagram } = req.body;
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'ID inválido.' });
   if (commissionPercent != null) {
     const commission = Number(commissionPercent);
@@ -884,10 +886,12 @@ app.patch('/api/admin/barbers/:id', authRequired, barberOnly, async (req, res) =
     const { rows } = await conn.query(
       `UPDATE barbers
        SET commission_percent = COALESCE($1, commission_percent),
-           specialty = COALESCE($2, specialty)
-       WHERE user_id = $3
-       RETURNING commission_percent, specialty`,
-      [commissionPercent ?? null, specialty ?? null, id]
+           specialty = COALESCE($2, specialty),
+           whatsapp = COALESCE($3, whatsapp),
+           instagram = COALESCE($4, instagram)
+       WHERE user_id = $5
+       RETURNING commission_percent, specialty, whatsapp, instagram`,
+      [commissionPercent ?? null, specialty ?? null, whatsapp ?? null, instagram ?? null, id]
     );
 
     if (commissionPercent != null) {
