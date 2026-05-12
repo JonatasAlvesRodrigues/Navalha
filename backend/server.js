@@ -77,6 +77,8 @@ function tenantSlugFromReq(req) {
 }
 
 async function ensureOwnerTables() {
+  await pool.query(`ALTER TABLE barbershops ADD COLUMN IF NOT EXISTS city VARCHAR(120)`);
+
   await pool.query(
     `CREATE TABLE IF NOT EXISTS platform_trials (
       id BIGSERIAL PRIMARY KEY,
@@ -106,6 +108,27 @@ async function ensureOwnerTables() {
     )`
   );
 }
+
+app.get('/api/public/barbershops', async (req, res) => {
+  const city = String(req.query.city || '').trim();
+  const params = [];
+  let where = 'WHERE is_active = true';
+
+  if (city) {
+    params.push(`%${city}%`);
+    where += ` AND city ILIKE $${params.length}`;
+  }
+
+  const { rows } = await pool.query(
+    `SELECT id, name, slug, city
+     FROM barbershops
+     ${where}
+     ORDER BY name ASC
+     LIMIT 50`,
+    params
+  );
+  return res.json(rows);
+});
 
 async function rebalanceBarberCommissions(conn, tenantId, fixedBarberId, fixedCommission) {
   const fixed = Number(fixedCommission);
@@ -975,6 +998,7 @@ app.get('/api/owner/barbershops', authRequired, ownerOnly, async (_req, res) => 
     `SELECT
       b.id,
       b.name,
+      b.city,
       b.slug,
       b.is_active,
       s.plan_name,
@@ -993,7 +1017,7 @@ app.get('/api/owner/barbershops', authRequired, ownerOnly, async (_req, res) => 
 });
 
 app.post('/api/owner/barbershops', authRequired, ownerOnly, async (req, res) => {
-  const { name, slug, ownerFullName, ownerPhone, ownerEmail, ownerPassword, commissionPercent } = req.body;
+  const { name, slug, city, ownerFullName, ownerPhone, ownerEmail, ownerPassword, commissionPercent } = req.body;
   if (!name || !slug || !ownerFullName || !ownerPhone || !ownerPassword) {
     return res.status(400).json({ error: 'name, slug, ownerFullName, ownerPhone e ownerPassword são obrigatórios.' });
   }
@@ -1011,10 +1035,10 @@ app.post('/api/owner/barbershops', authRequired, ownerOnly, async (req, res) => 
   try {
     await conn.query('BEGIN');
     const shopInsert = await conn.query(
-      `INSERT INTO barbershops (name, slug, is_active)
-       VALUES ($1, $2, true)
-       RETURNING id, name, slug, is_active`,
-      [String(name).trim(), normalizedSlug]
+      `INSERT INTO barbershops (name, slug, city, is_active)
+       VALUES ($1, $2, $3, true)
+       RETURNING id, name, slug, city, is_active`,
+      [String(name).trim(), normalizedSlug, city ? String(city).trim() : null]
     );
     const shop = shopInsert.rows[0];
 

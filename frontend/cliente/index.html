@@ -23,11 +23,23 @@
     <section class="client-hero">
       <p class="eyebrow">Navalha Cliente</p>
       <h1>Agende em menos de 1 minuto.</h1>
-      <p>Login rápido com telefone e senha.</p>
+      <p>Escolha a barbearia da sua cidade e entre com email e senha.</p>
     </section>
 
     <section class="panel" id="authCard">
       <h2>Acesso</h2>
+      <div class="client-grid">
+        <label>Sua cidade
+          <div class="city-search-row">
+            <input id="citySearch" type="text" placeholder="Ex: São Paulo" />
+            <button id="searchCityBtn" class="ghost" type="button">Buscar</button>
+          </div>
+        </label>
+        <label>Barbearia
+          <select id="barbershopSlugSelect"></select>
+        </label>
+        <p id="barbershopSearchMsg" class="subtle"></p>
+      </div>
       <form id="clientLoginForm" class="client-grid">
         <label>Email
           <input id="loginEmail" type="email" placeholder="voce@email.com" required />
@@ -92,8 +104,13 @@
         <label>Horário
           <select id="slot"></select>
         </label>
-        <label>Serviços
-          <select id="services" multiple></select>
+        <div>
+          <label>Serviços</label>
+          <div id="servicesCatalog" class="services-catalog"></div>
+          <p id="serviceSummary" class="subtle">Nenhum serviço selecionado.</p>
+        </div>
+        <label>Observação para o barbeiro
+          <textarea id="appointmentNotes" rows="3" placeholder="Ex: prefiro degradê baixo e tirar apenas nas laterais"></textarea>
         </label>
         <button id="confirmBtn" class="cta" type="button">Confirmar Agendamento</button>
       </form>

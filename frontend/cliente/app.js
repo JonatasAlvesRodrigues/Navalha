@@ -1,4 +1,4 @@
-﻿const tenantSlug = window.location.pathname.split('/')[2] || 'navalha-demo';
+﻿const tenantSlugFromPath = window.location.pathname.split('/')[2] || '';
 
 const authCard = document.getElementById('authCard');
 const bookingCard = document.getElementById('bookingCard');
@@ -11,17 +11,27 @@ const kpiTotal = document.getElementById('kpiTotal');
 const kpiDone = document.getElementById('kpiDone');
 const kpiCanceled = document.getElementById('kpiCanceled');
 
-const regFullName = document.getElementById('regFullName');
-
 const barberSelect = document.getElementById('barberId');
 const dateInput = document.getElementById('date');
 const slotSelect = document.getElementById('slot');
-const servicesSelect = document.getElementById('services');
+const servicesCatalog = document.getElementById('servicesCatalog');
+const serviceSummary = document.getElementById('serviceSummary');
+const appointmentNotes = document.getElementById('appointmentNotes');
+const citySearch = document.getElementById('citySearch');
+const searchCityBtn = document.getElementById('searchCityBtn');
+const barbershopSlugSelect = document.getElementById('barbershopSlugSelect');
+const barbershopSearchMsg = document.getElementById('barbershopSearchMsg');
 const mobileQuickNav = document.getElementById('mobileQuickNav');
 const mobileQuickBtns = Array.from(document.querySelectorAll('.mobile-quick-btn'));
 
-let token = localStorage.getItem(`client_token_${tenantSlug}`) || '';
+let selectedTenantSlug = localStorage.getItem('client_tenant_slug') || tenantSlugFromPath || 'navalha-demo';
+let token = localStorage.getItem(`client_token_${selectedTenantSlug}`) || '';
 let currentClient = null;
+let selectedServices = new Map();
+
+function activeTenantSlug() {
+  return selectedTenantSlug || 'navalha-demo';
+}
 
 async function fetchJson(url, options = {}) {
   const headers = options.headers || {};
@@ -58,21 +68,82 @@ function statusBadge(status) {
   return `<span class="badge status-${status}">${status}</span>`;
 }
 
+function updateServiceSummary() {
+  const items = Array.from(selectedServices.values());
+  if (!items.length) {
+    serviceSummary.textContent = 'Nenhum serviço selecionado.';
+    return;
+  }
+  const total = items.reduce((acc, item) => acc + item.price, 0);
+  const minutes = items.reduce((acc, item) => acc + item.minutes, 0);
+  serviceSummary.textContent = `${items.length} serviço(s) • ${minutes} min • ${brl(total)}`;
+}
+
+async function loadBarbershopsByCity() {
+  const city = citySearch?.value?.trim() || '';
+  if (barbershopSearchMsg) barbershopSearchMsg.textContent = 'Buscando barbearias...';
+  const rows = await fetchJson(`/api/public/barbershops${city ? `?city=${encodeURIComponent(city)}` : ''}`);
+  if (!rows.length) {
+    barbershopSlugSelect.innerHTML = '<option value="">Nenhuma barbearia encontrada</option>';
+    if (barbershopSearchMsg) barbershopSearchMsg.textContent = 'Não encontramos barbearias para essa cidade.';
+    return;
+  }
+  barbershopSlugSelect.innerHTML = rows.map((b) => `<option value="${b.slug}">${b.name}${b.city ? ` • ${b.city}` : ''}</option>`).join('');
+  if (rows.some((b) => b.slug === selectedTenantSlug)) {
+    barbershopSlugSelect.value = selectedTenantSlug;
+  } else {
+    barbershopSlugSelect.value = rows[0].slug;
+    selectedTenantSlug = rows[0].slug;
+    localStorage.setItem('client_tenant_slug', selectedTenantSlug);
+  }
+  if (barbershopSearchMsg) barbershopSearchMsg.textContent = `${rows.length} barbearia(s) encontrada(s).`;
+}
+
 async function loadBarbers() {
-  const rows = await fetchJson(`/api/barbers?tenantSlug=${tenantSlug}`);
+  const rows = await fetchJson(`/api/barbers?tenantSlug=${activeTenantSlug()}`);
   barberSelect.innerHTML = rows.map((b) => `<option value="${b.id}">${b.full_name}</option>`).join('');
 }
 
 async function loadServices() {
-  const rows = await fetchJson(`/api/services?tenantSlug=${tenantSlug}`);
-  servicesSelect.innerHTML = rows.map((s) => `<option value="${s.id}">${s.name} - R$ ${Number(s.price).toFixed(2)}</option>`).join('');
+  const rows = await fetchJson(`/api/services?tenantSlug=${activeTenantSlug()}`);
+  selectedServices.clear();
+  servicesCatalog.innerHTML = rows.map((s) => `
+    <label class="service-item">
+      <input type="checkbox" data-id="${s.id}" data-name="${s.name}" data-price="${Number(s.price)}" data-min="${s.estimated_minutes}" />
+      <div>
+        <strong>${s.name}</strong>
+        <span class="service-meta">${s.estimated_minutes} min</span>
+      </div>
+      <strong>${brl(s.price)}</strong>
+    </label>
+  `).join('');
+
+  servicesCatalog.querySelectorAll('input[type="checkbox"]').forEach((el) => {
+    el.addEventListener('change', (event) => {
+      const target = event.target;
+      const id = Number(target.dataset.id);
+      if (target.checked) {
+        selectedServices.set(id, {
+          id,
+          name: target.dataset.name,
+          price: Number(target.dataset.price || 0),
+          minutes: Number(target.dataset.min || 0),
+        });
+      } else {
+        selectedServices.delete(id);
+      }
+      updateServiceSummary();
+    });
+  });
+
+  updateServiceSummary();
 }
 
 async function loadSlots() {
   const barberId = barberSelect.value;
   const date = dateInput.value;
   if (!barberId || !date) return;
-  const data = await fetchJson(`/api/appointments/available-slots?tenantSlug=${tenantSlug}&barberId=${barberId}&date=${date}`);
+  const data = await fetchJson(`/api/appointments/available-slots?tenantSlug=${activeTenantSlug()}&barberId=${barberId}&date=${date}`);
   slotSelect.innerHTML = data.slots.length
     ? data.slots.map((s) => `<option value="${s}">${s}</option>`).join('')
     : '<option value="">Sem horários</option>';
@@ -220,13 +291,13 @@ document.getElementById('clientLoginForm').addEventListener('submit', async (e) 
     const data = await fetchJson('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantSlug, email: loginIdentifier, password: loginPassword }),
+      body: JSON.stringify({ tenantSlug: activeTenantSlug(), email: loginIdentifier, password: loginPassword }),
     });
 
     if (data.user.role !== 'CLIENTE') throw new Error('Este acesso é exclusivo para clientes.');
 
     token = data.token;
-    localStorage.setItem(`client_token_${tenantSlug}`, token);
+    localStorage.setItem(`client_token_${activeTenantSlug()}`, token);
     authMsg.textContent = 'Acesso liberado.';
     setLoggedInUI(true);
 
@@ -255,7 +326,7 @@ document.getElementById('clientRegisterForm').addEventListener('submit', async (
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        tenantSlug,
+        tenantSlug: activeTenantSlug(),
         fullName: registerName,
         email: registerEmail,
         password: registerPassword,
@@ -263,7 +334,7 @@ document.getElementById('clientRegisterForm').addEventListener('submit', async (
     });
 
     token = data.token;
-    localStorage.setItem(`client_token_${tenantSlug}`, token);
+    localStorage.setItem(`client_token_${activeTenantSlug()}`, token);
     authMsg.textContent = 'Conta criada com sucesso. Você já está logado.';
     setLoggedInUI(true);
 
@@ -276,6 +347,31 @@ document.getElementById('clientRegisterForm').addEventListener('submit', async (
   }
 });
 
+searchCityBtn?.addEventListener('click', async () => {
+  try {
+    await loadBarbershopsByCity();
+  } catch (err) {
+    if (barbershopSearchMsg) barbershopSearchMsg.textContent = err.message;
+  }
+});
+
+barbershopSlugSelect?.addEventListener('change', async () => {
+  const nextSlug = barbershopSlugSelect.value;
+  if (!nextSlug || nextSlug === selectedTenantSlug) return;
+  selectedTenantSlug = nextSlug;
+  localStorage.setItem('client_tenant_slug', selectedTenantSlug);
+  token = '';
+  currentClient = null;
+  setLoggedInUI(false);
+  authMsg.textContent = `Barbearia selecionada: ${nextSlug}`;
+  try {
+    await Promise.all([loadBarbers(), loadServices()]);
+    await loadSlots();
+  } catch (_e) {
+    // noop
+  }
+});
+
 barberSelect.addEventListener('change', loadSlots);
 dateInput.addEventListener('change', loadSlots);
 
@@ -284,8 +380,8 @@ document.getElementById('confirmBtn').addEventListener('click', async () => {
   confirmBtn.disabled = true;
   bookingMsg.textContent = 'Confirmando...';
   try {
-    const selectedServices = Array.from(servicesSelect.selectedOptions).map((o) => Number(o.value));
-    if (!selectedServices.length) throw new Error('Selecione pelo menos um serviço.');
+    const selectedServiceIds = Array.from(selectedServices.values()).map((s) => s.id);
+    if (!selectedServiceIds.length) throw new Error('Selecione pelo menos um serviço.');
 
     const date = dateInput.value;
     const slot = slotSelect.value;
@@ -298,9 +394,9 @@ document.getElementById('confirmBtn').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         barberId: Number(barberSelect.value),
-        services: selectedServices,
+        services: selectedServiceIds,
         scheduledStart,
-        notes: 'Agendamento via area do cliente Navalha',
+        notes: (appointmentNotes.value || '').trim() || 'Agendamento via área do cliente Navalha',
       }),
     });
 
@@ -316,12 +412,13 @@ document.getElementById('confirmBtn').addEventListener('click', async () => {
 document.getElementById('logoutBtn').addEventListener('click', () => {
   token = '';
   currentClient = null;
-  localStorage.removeItem(`client_token_${tenantSlug}`);
+  localStorage.removeItem(`client_token_${activeTenantSlug()}`);
   setLoggedInUI(false);
 });
 
 (async function init() {
   initMobileQuickNav();
+  try { await loadBarbershopsByCity(); } catch (_e) { /* noop */ }
   if (!token) return setLoggedInUI(false);
   try {
     const me = await fetchJson('/api/auth/me');
@@ -335,7 +432,7 @@ document.getElementById('logoutBtn').addEventListener('click', () => {
   } catch {
     token = '';
     currentClient = null;
-    localStorage.removeItem(`client_token_${tenantSlug}`);
+    localStorage.removeItem(`client_token_${activeTenantSlug()}`);
     setLoggedInUI(false);
   }
 })();

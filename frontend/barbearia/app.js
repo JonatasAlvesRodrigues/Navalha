@@ -165,7 +165,7 @@ function logout() {
 
 function ownerTable(rows) {
   if (!rows.length) return '<p>Nenhuma barbearia cadastrada.</p>';
-  return `<table><thead><tr><th>ID</th><th>Nome</th><th>Slug</th><th>Ativa</th><th>Plano</th><th>Preço</th><th>Status</th><th>Trial até</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r.id}</td><td>${r.name}</td><td>${r.slug}</td><td>${r.is_active ? 'SIM' : 'NAO'}</td><td>${r.plan_name || 'TRIAL'}</td><td>${brl(r.monthly_price || 0)}</td><td>${r.subscription_status || 'TRIAL'}</td><td>${r.trial_ends_at ? new Date(r.trial_ends_at).toLocaleDateString('pt-BR') : '-'}</td></tr>`).join('')}</tbody></table>`;
+  return `<table><thead><tr><th>ID</th><th>Nome</th><th>Cidade</th><th>Slug</th><th>Ativa</th><th>Plano</th><th>Preço</th><th>Status</th><th>Trial até</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r.id}</td><td>${r.name}</td><td>${r.city || '-'}</td><td>${r.slug}</td><td>${r.is_active ? 'SIM' : 'NAO'}</td><td>${r.plan_name || 'TRIAL'}</td><td>${brl(r.monthly_price || 0)}</td><td>${r.subscription_status || 'TRIAL'}</td><td>${r.trial_ends_at ? new Date(r.trial_ends_at).toLocaleDateString('pt-BR') : '-'}</td></tr>`).join('')}</tbody></table>`;
 }
 
 async function loadOwnerOverview() {
@@ -509,6 +509,7 @@ createBarbershopForm?.addEventListener('submit', async (event) => {
     const payload = {
       name: document.getElementById('newShopName').value.trim(),
       slug: document.getElementById('newShopSlug').value.trim(),
+      city: document.getElementById('newShopCity').value.trim() || null,
       ownerFullName: document.getElementById('newOwnerName').value.trim(),
       ownerPhone: document.getElementById('newOwnerPhone').value.trim(),
       ownerEmail: document.getElementById('newOwnerEmail').value.trim() || null,
