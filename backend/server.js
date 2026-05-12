@@ -1364,6 +1364,88 @@ app.patch('/api/owner/barbershops/:id/subscription', authRequired, ownerOnly, as
   }
 });
 
+app.post('/api/owner/barbershops/:id/block', authRequired, ownerOnly, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'ID inválido.' });
+
+  const conn = await pool.connect();
+  try {
+    await conn.query('BEGIN');
+    const shopUpdate = await conn.query(
+      `UPDATE barbershops
+       SET is_active = false
+       WHERE id = $1
+       RETURNING id, slug`,
+      [id]
+    );
+    if (!shopUpdate.rowCount) throw new Error('Barbearia não encontrada.');
+
+    await conn.query(
+      `INSERT INTO platform_subscriptions (barbershop_id, plan_name, monthly_price, status, notes, updated_at)
+       VALUES ($1, 'TRIAL', 0, 'BLOQUEADA', 'Bloqueada por inadimplência', NOW())
+       ON CONFLICT (barbershop_id)
+       DO UPDATE SET
+         status = 'BLOQUEADA',
+         notes = 'Bloqueada por inadimplência',
+         updated_at = NOW()`,
+      [id]
+    );
+
+    await conn.query('COMMIT');
+    return res.json({ ok: true, id });
+  } catch (error) {
+    await conn.query('ROLLBACK');
+    return res.status(400).json({ error: error.message });
+  } finally {
+    conn.release();
+  }
+});
+
+app.delete('/api/owner/barbershops/:id', authRequired, ownerOnly, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'ID inválido.' });
+
+  const conn = await pool.connect();
+  try {
+    await conn.query('BEGIN');
+    const shopUpdate = await conn.query(
+      `UPDATE barbershops
+       SET is_active = false
+       WHERE id = $1
+       RETURNING id`,
+      [id]
+    );
+    if (!shopUpdate.rowCount) throw new Error('Barbearia não encontrada.');
+
+    await conn.query(
+      `UPDATE users
+       SET is_active = false
+       WHERE barbershop_id = $1`,
+      [id]
+    );
+
+    await conn.query(
+      `INSERT INTO platform_subscriptions (barbershop_id, plan_name, monthly_price, status, notes, updated_at)
+       VALUES ($1, 'TRIAL', 0, 'CANCELADA', 'Barbearia excluída pelo dono do sistema', NOW())
+       ON CONFLICT (barbershop_id)
+       DO UPDATE SET
+         status = 'CANCELADA',
+         notes = 'Barbearia excluída pelo dono do sistema',
+         canceled_at = NOW(),
+         updated_at = NOW()`,
+      [id]
+    );
+
+    await conn.query('COMMIT');
+    return res.json({ ok: true, id });
+  } catch (error) {
+    await conn.query('ROLLBACK');
+    return res.status(400).json({ error: error.message });
+  } finally {
+    conn.release();
+  }
+});
+
 app.get('/api/owner/finance', authRequired, ownerOnly, async (_req, res) => {
   const [{ rows: mrrRows }, { rows: trialRows }, { rows: churnRows }] = await Promise.all([
     pool.query(

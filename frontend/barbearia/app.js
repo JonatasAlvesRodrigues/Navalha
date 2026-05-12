@@ -20,6 +20,7 @@ const barbersAdminTable = document.getElementById('barbersAdminTable');
 const productsAdminTable = document.getElementById('productsAdminTable');
 const screenProgress = document.getElementById('screenProgress');
 const ownerLoginForm = document.getElementById('ownerLoginForm');
+const ownerLogoutBtn = document.getElementById('ownerLogoutBtn');
 const ownerAuthFeedback = document.getElementById('ownerAuthFeedback');
 const ownerBarbershopsTable = document.getElementById('ownerBarbershopsTable');
 const ownerTotalBarbershops = document.getElementById('ownerTotalBarbershops');
@@ -38,6 +39,9 @@ const updateSubscriptionForm = document.getElementById('updateSubscriptionForm')
 const subscriptionFeedback = document.getElementById('subscriptionFeedback');
 const editBarbershopForm = document.getElementById('editBarbershopForm');
 const editBarbershopFeedback = document.getElementById('editBarbershopFeedback');
+const editShopIdInput = document.getElementById('editShopId');
+const blockBarbershopBtn = document.getElementById('blockBarbershopBtn');
+const deleteBarbershopBtn = document.getElementById('deleteBarbershopBtn');
 const barberChangePasswordForm = document.getElementById('barberChangePasswordForm');
 const barberPasswordFeedback = document.getElementById('barberPasswordFeedback');
 const ownerCityOptions = document.getElementById('ownerCityOptions');
@@ -204,7 +208,10 @@ async function loadOwnerBarbershops() {
 
 window.prefillBarbershopEdit = (id) => {
   const row = ownerRowsCache.find((item) => item.id === Number(id));
-  if (!row) return;
+  if (!row) {
+    if (editBarbershopFeedback) editBarbershopFeedback.textContent = `Barbearia ${id} não encontrada na lista atual.`;
+    return;
+  }
   document.getElementById('editShopId').value = row.id;
   document.getElementById('editShopName').value = row.name || '';
   document.getElementById('editShopSlug').value = row.slug || '';
@@ -223,6 +230,12 @@ window.prefillBarbershopEdit = (id) => {
   setActiveScreen('dono');
   window.location.hash = 'dono';
 };
+
+function prefillBarbershopByInputId() {
+  const id = Number(editShopIdInput?.value);
+  if (!id) return;
+  window.prefillBarbershopEdit(id);
+}
 
 async function loadOwnerFinance() {
   if (!isOwnerSession()) return;
@@ -554,6 +567,10 @@ barberChangePasswordForm?.addEventListener('submit', async (event) => {
 });
 
 document.getElementById('logoutBtn').addEventListener('click', logout);
+ownerLogoutBtn?.addEventListener('click', () => {
+  logout();
+  ownerAuthFeedback.textContent = 'Sessão do dono encerrada.';
+});
 document.getElementById('reloadAdmin').addEventListener('click', loadAdminAppointments);
 
 ownerLoginForm?.addEventListener('submit', async (event) => {
@@ -675,6 +692,40 @@ editBarbershopForm?.addEventListener('submit', async (event) => {
     });
     editBarbershopFeedback.textContent = `Barbearia ${id} atualizada com sucesso.`;
     await Promise.all([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
+  } catch (error) {
+    editBarbershopFeedback.textContent = error.message;
+  }
+});
+
+editShopIdInput?.addEventListener('input', () => {
+  prefillBarbershopByInputId();
+});
+
+blockBarbershopBtn?.addEventListener('click', async () => {
+  try {
+    if (!isOwnerSession()) throw new Error('Faça login como dono para bloquear barbearia.');
+    const id = Number(editShopIdInput?.value);
+    if (!id) throw new Error('Informe o ID da barbearia.');
+    if (!confirmAction('Bloquear esta barbearia por inadimplência?')) return;
+    await fetchJson(`/api/owner/barbershops/${id}/block`, { method: 'POST' });
+    editBarbershopFeedback.textContent = `Barbearia ${id} bloqueada com sucesso.`;
+    await Promise.all([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
+    prefillBarbershopByInputId();
+  } catch (error) {
+    editBarbershopFeedback.textContent = error.message;
+  }
+});
+
+deleteBarbershopBtn?.addEventListener('click', async () => {
+  try {
+    if (!isOwnerSession()) throw new Error('Faça login como dono para excluir barbearia.');
+    const id = Number(editShopIdInput?.value);
+    if (!id) throw new Error('Informe o ID da barbearia.');
+    if (!confirmAction('Excluir (desativar) esta barbearia e usuários vinculados?')) return;
+    await fetchJson(`/api/owner/barbershops/${id}`, { method: 'DELETE' });
+    editBarbershopFeedback.textContent = `Barbearia ${id} excluída com sucesso.`;
+    await Promise.all([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
+    prefillBarbershopByInputId();
   } catch (error) {
     editBarbershopFeedback.textContent = error.message;
   }
