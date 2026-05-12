@@ -11,11 +11,7 @@ const kpiTotal = document.getElementById('kpiTotal');
 const kpiDone = document.getElementById('kpiDone');
 const kpiCanceled = document.getElementById('kpiCanceled');
 
-const loginEmailInput = document.getElementById('loginEmail') || document.getElementById('phone');
-const passwordInput = document.getElementById('password');
 const regFullName = document.getElementById('regFullName');
-const regEmail = document.getElementById('regEmail');
-const regPassword = document.getElementById('regPassword');
 
 const barberSelect = document.getElementById('barberId');
 const dateInput = document.getElementById('date');
@@ -211,13 +207,20 @@ document.getElementById('clientLoginForm').addEventListener('submit', async (e) 
   e.preventDefault();
   authMsg.textContent = 'Entrando...';
   try {
-    const loginIdentifier = loginEmailInput?.value?.trim();
+    const form = e.currentTarget;
+    const loginIdentifier = (
+      form.querySelector('#loginEmail')?.value
+      || form.querySelector('#phone')?.value
+      || ''
+    ).trim();
+    const loginPassword = (form.querySelector('#password')?.value || '').trim();
     if (!loginIdentifier) throw new Error('Informe seu email para entrar.');
+    if (!loginPassword) throw new Error('Informe sua senha para entrar.');
 
     const data = await fetchJson('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantSlug, email: loginIdentifier, password: passwordInput.value }),
+      body: JSON.stringify({ tenantSlug, email: loginIdentifier, password: loginPassword }),
     });
 
     if (data.user.role !== 'CLIENTE') throw new Error('Este acesso é exclusivo para clientes.');
@@ -240,17 +243,22 @@ document.getElementById('clientRegisterForm').addEventListener('submit', async (
   e.preventDefault();
   authMsg.textContent = 'Criando conta...';
   try {
-    const registerEmail = regEmail?.value?.trim()?.toLowerCase();
+    const form = e.currentTarget;
+    const registerName = (form.querySelector('#regFullName')?.value || '').trim();
+    const registerEmail = (form.querySelector('#regEmail')?.value || '').trim().toLowerCase();
+    const registerPassword = (form.querySelector('#regPassword')?.value || '').trim();
+    if (!registerName) throw new Error('Informe seu nome para cadastro.');
     if (!registerEmail) throw new Error('Informe um email válido para cadastro.');
+    if (!registerPassword) throw new Error('Informe uma senha para cadastro.');
 
     const data = await fetchJson('/api/auth/register-client', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         tenantSlug,
-        fullName: regFullName.value.trim(),
+        fullName: registerName,
         email: registerEmail,
-        password: regPassword.value,
+        password: registerPassword,
       }),
     });
 
