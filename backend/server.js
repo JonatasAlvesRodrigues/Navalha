@@ -296,12 +296,24 @@ app.post('/api/auth/register-client', async (req, res) => {
       return res.status(400).json({ error: 'Telefone inválido (mínimo de 10 dígitos).' });
     }
 
+    const existingParams = [tenant.id];
+    const existingConditions = [];
+
+    if (normalizedPhone) {
+      existingParams.push(normalizedPhone);
+      existingConditions.push(`phone = $${existingParams.length}`);
+    }
+    if (normalizedEmail) {
+      existingParams.push(normalizedEmail);
+      existingConditions.push(`email = $${existingParams.length}`);
+    }
+
     const existing = await pool.query(
       `SELECT 1
        FROM users
        WHERE barbershop_id = $1
-         AND (($2 IS NOT NULL AND phone = $2) OR ($3 IS NOT NULL AND email = $3))`,
-      [tenant.id, normalizedPhone, normalizedEmail]
+         AND (${existingConditions.join(' OR ')})`,
+      existingParams
     );
     if (existing.rowCount) {
       return res.status(409).json({ error: 'Já existe conta com esse telefone/email nesta barbearia.' });
