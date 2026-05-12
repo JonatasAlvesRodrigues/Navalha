@@ -11,7 +11,7 @@ const kpiTotal = document.getElementById('kpiTotal');
 const kpiDone = document.getElementById('kpiDone');
 const kpiCanceled = document.getElementById('kpiCanceled');
 
-const loginEmailInput = document.getElementById('loginEmail');
+const loginEmailInput = document.getElementById('loginEmail') || document.getElementById('phone');
 const passwordInput = document.getElementById('password');
 const regFullName = document.getElementById('regFullName');
 const regEmail = document.getElementById('regEmail');
@@ -211,10 +211,13 @@ document.getElementById('clientLoginForm').addEventListener('submit', async (e) 
   e.preventDefault();
   authMsg.textContent = 'Entrando...';
   try {
+    const loginIdentifier = loginEmailInput?.value?.trim();
+    if (!loginIdentifier) throw new Error('Informe seu email para entrar.');
+
     const data = await fetchJson('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantSlug, email: loginEmailInput.value.trim(), password: passwordInput.value }),
+      body: JSON.stringify({ tenantSlug, email: loginIdentifier, password: passwordInput.value }),
     });
 
     if (data.user.role !== 'CLIENTE') throw new Error('Este acesso é exclusivo para clientes.');
@@ -237,13 +240,16 @@ document.getElementById('clientRegisterForm').addEventListener('submit', async (
   e.preventDefault();
   authMsg.textContent = 'Criando conta...';
   try {
+    const registerEmail = regEmail?.value?.trim()?.toLowerCase();
+    if (!registerEmail) throw new Error('Informe um email válido para cadastro.');
+
     const data = await fetchJson('/api/auth/register-client', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         tenantSlug,
         fullName: regFullName.value.trim(),
-        email: regEmail.value.trim().toLowerCase(),
+        email: registerEmail,
         password: regPassword.value,
       }),
     });
