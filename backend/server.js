@@ -77,6 +77,14 @@ function tenantSlugFromReq(req) {
   return req.headers['x-tenant-slug'] || req.query.tenantSlug || req.body?.tenantSlug || null;
 }
 
+function normalizePhone(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
 async function ensureOwnerTables() {
   await pool.query(`ALTER TABLE barbershops ADD COLUMN IF NOT EXISTS city VARCHAR(120)`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false`);
@@ -223,10 +231,12 @@ app.get('/api/health', async (_req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, phone, password } = req.body;
-  const identifier = (email || phone || '').trim();
+  const rawIdentifier = (email || phone || '').trim();
+  const identifierEmail = normalizeEmail(rawIdentifier);
+  const identifierPhone = normalizePhone(rawIdentifier);
   const tenantSlug = tenantSlugFromReq(req);
 
-  if (!identifier || !password || !tenantSlug) {
+  if (!rawIdentifier || !password || !tenantSlug) {
     return res.status(400).json({ error: 'tenantSlug, telefone/email e senha são obrigatórios.' });
   }
 
@@ -238,9 +248,9 @@ app.post('/api/auth/login', async (req, res) => {
             b.id AS tenant_id, b.slug AS tenant_slug
      FROM users u
      JOIN barbershops b ON b.id = u.barbershop_id
-     WHERE (u.email = $1 OR u.phone = $1)
-       AND u.barbershop_id = $2`,
-    [identifier, tenant.id]
+     WHERE ((LOWER(COALESCE(u.email, '')) = $1) OR (REGEXP_REPLACE(COALESCE(u.phone, ''), '\\D', '', 'g') = $2))
+       AND u.barbershop_id = $3`,
+    [identifierEmail, identifierPhone, tenant.id]
   );
 
   if (!rows.length || !rows[0].is_active) return res.status(401).json({ error: 'Credenciais inválidas.' });
@@ -571,12 +581,13 @@ app.get('/api/barbers', async (req, res) => {
   if (!tenant) return res.status(400).json({ error: 'tenantSlug inválido.' });
 
   const { rows } = await pool.query(
-    `SELECT u.id, u.full_name, u.phone, b.commission_percent, b.specialty, b.photo_url, b.whatsapp, b.instagram, b.city
+    `SELECT u.id, u.full_name, u.phone, b.commission_percent, b.specialty, b.photo_url, b.whatsapp, b.instagram, COALESCE(b.city, bs.city) AS city
      FROM barbers b
      JOIN users u ON u.id = b.user_id
+     JOIN barbershops bs ON bs.id = u.barbershop_id
      WHERE u.is_active = true
        AND u.barbershop_id = $1
-       AND ($2 = '' OR LOWER(COALESCE(b.city, '')) LIKE '%' || $2 || '%')
+       AND ($2 = '' OR LOWER(COALESCE(b.city, bs.city, '')) LIKE '%' || $2 || '%')
      ORDER BY u.full_name ASC`,
     [tenant.id, city]
   );
@@ -826,6 +837,11 @@ app.post('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
     return res.status(400).json({ error: 'commissionPercent deve estar entre 0 e 100.' });
   }
 
+  const normalizedPhone = normalizePhone(phone);
+  const normalizedWhatsapp = whatsapp ? normalizePhone(whatsapp) : null;
+  const normalizedEmail = email ? normalizeEmail(email) : null;
+  if (normalizedPhone.length < 10) return res.status(400).json({ error: 'Telefone inválido (mínimo de 10 dígitos).' });
+
   const hash = await bcrypt.hash(password, 10);
   const conn = await pool.connect();
   try {
@@ -834,14 +850,14 @@ app.post('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
       `INSERT INTO users (full_name, email, phone, role, password_hash, barbershop_id, is_active)
        VALUES ($1, $2, $3, 'BARBEIRO', $4, $5, true)
        RETURNING id, full_name, phone, email`,
-      [fullName, email || null, phone, hash, req.user.tenantId]
+      [fullName, normalizedEmail, normalizedPhone, hash, req.user.tenantId]
     );
     const user = userInsert.rows[0];
 
     await conn.query(
       `INSERT INTO barbers (user_id, commission_percent, specialty, whatsapp, instagram, city)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [user.id, commission, specialty || null, whatsapp || null, instagram || null, city || null]
+      [user.id, commission, specialty || null, normalizedWhatsapp, instagram || null, city || null]
     );
 
     await rebalanceBarberCommissions(conn, req.user.tenantId, user.id, commission);
@@ -858,6 +874,9 @@ app.post('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
 app.patch('/api/admin/barbers/:id', authRequired, barberOnly, async (req, res) => {
   const id = Number(req.params.id);
   const { fullName, phone, email, commissionPercent, specialty, isActive, whatsapp, instagram, city } = req.body;
+  const normalizedPhone = phone != null ? normalizePhone(phone) : null;
+  const normalizedWhatsapp = whatsapp != null ? normalizePhone(whatsapp) : null;
+  const normalizedEmail = email != null ? normalizeEmail(email) : null;
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'ID inválido.' });
   if (commissionPercent != null) {
     const commission = Number(commissionPercent);
@@ -876,7 +895,7 @@ app.patch('/api/admin/barbers/:id', authRequired, barberOnly, async (req, res) =
            email = COALESCE($3, email),
            is_active = COALESCE($4, is_active)
        WHERE id = $5 AND barbershop_id = $6`,
-      [fullName ?? null, phone ?? null, email ?? null, isActive ?? null, id, req.user.tenantId]
+      [fullName ?? null, normalizedPhone, normalizedEmail, isActive ?? null, id, req.user.tenantId]
     );
 
     const { rows } = await conn.query(
@@ -888,7 +907,7 @@ app.patch('/api/admin/barbers/:id', authRequired, barberOnly, async (req, res) =
            city = COALESCE($5, city)
        WHERE user_id = $6
        RETURNING commission_percent, specialty, whatsapp, instagram, city`,
-      [commissionPercent ?? null, specialty ?? null, whatsapp ?? null, instagram ?? null, city ?? null, id]
+      [commissionPercent ?? null, specialty ?? null, normalizedWhatsapp, instagram ?? null, city ?? null, id]
     );
 
     if (commissionPercent != null) {
@@ -1104,6 +1123,13 @@ app.post('/api/owner/barbershops', authRequired, ownerOnly, async (req, res) => 
     return res.status(400).json({ error: 'commissionPercent deve estar entre 0 e 100.' });
   }
 
+  const normalizedOwnerPhone = normalizePhone(ownerPhone);
+  const normalizedOwnerEmail = ownerEmail ? normalizeEmail(ownerEmail) : null;
+  const normalizedCity = city ? String(city).trim() : null;
+  if (normalizedOwnerPhone.length < 10) {
+    return res.status(400).json({ error: 'ownerPhone inválido (mínimo de 10 dígitos).' });
+  }
+
   const hash = await bcrypt.hash(String(ownerPassword), 10);
   const conn = await pool.connect();
   try {
@@ -1112,7 +1138,7 @@ app.post('/api/owner/barbershops', authRequired, ownerOnly, async (req, res) => 
       `INSERT INTO barbershops (name, slug, city, is_active)
        VALUES ($1, $2, $3, true)
        RETURNING id, name, slug, city, is_active`,
-      [String(name).trim(), normalizedSlug, city ? String(city).trim() : null]
+      [String(name).trim(), normalizedSlug, normalizedCity]
     );
     const shop = shopInsert.rows[0];
 
@@ -1120,13 +1146,13 @@ app.post('/api/owner/barbershops', authRequired, ownerOnly, async (req, res) => 
       `INSERT INTO users (full_name, email, phone, role, password_hash, barbershop_id, is_active, must_change_password)
        VALUES ($1, $2, $3, 'BARBEIRO', $4, $5, true, true)
        RETURNING id`,
-      [String(ownerFullName).trim(), ownerEmail ? String(ownerEmail).trim() : null, String(ownerPhone).trim(), hash, shop.id]
+      [String(ownerFullName).trim(), normalizedOwnerEmail, normalizedOwnerPhone, hash, shop.id]
     );
 
     await conn.query(
-      `INSERT INTO barbers (user_id, commission_percent, specialty)
-       VALUES ($1, $2, $3)`,
-      [userInsert.rows[0].id, commission, 'Responsável']
+      `INSERT INTO barbers (user_id, commission_percent, specialty, city)
+       VALUES ($1, $2, $3, $4)`,
+      [userInsert.rows[0].id, commission, 'Responsável', normalizedCity]
     );
 
     await conn.query(
@@ -1220,8 +1246,8 @@ app.patch('/api/owner/barbershops/:id', authRequired, ownerOnly, async (req, res
          WHERE id = $4`,
         [
           ownerFullName ? String(ownerFullName).trim() : null,
-          ownerPhone ? String(ownerPhone).trim() : null,
-          ownerEmail === '' ? null : (ownerEmail ? String(ownerEmail).trim() : null),
+          ownerPhone ? normalizePhone(ownerPhone) : null,
+          ownerEmail === '' ? null : (ownerEmail ? normalizeEmail(ownerEmail) : null),
           ownerId,
         ]
       );

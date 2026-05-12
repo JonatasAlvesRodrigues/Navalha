@@ -563,7 +563,11 @@ ownerLoginForm?.addEventListener('submit', async (event) => {
       document.getElementById('ownerEmail').value,
       document.getElementById('ownerPassword').value
     );
-    await Promise.all([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
+    const results = await Promise.allSettled([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
+    const failed = results.find((r) => r.status === 'rejected');
+    if (failed) {
+      throw new Error(failed.reason?.message || 'Falha ao carregar dados do painel do dono.');
+    }
     setActiveScreen('dono');
     window.location.hash = 'dono';
   } catch (error) {
