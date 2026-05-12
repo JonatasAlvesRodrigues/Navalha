@@ -16,8 +16,8 @@ const reminderTimezone = process.env.REMINDER_TIMEZONE || 'America/Sao_Paulo';
 const reminderProvider = process.env.REMINDER_PROVIDER || 'evolution';
 const reminderThreshold = Number(process.env.REMINDER_THRESHOLD_DAYS_BEFORE || 2);
 const enableReminderCron = String(process.env.REMINDER_CRON_ENABLED || 'true') === 'true';
-const ownerEmail = process.env.OWNER_EMAIL || 'dono@navalha.com';
-const ownerPassword = process.env.OWNER_PASSWORD || 'owner123';
+const ownerEmail = process.env.OWNER_EMAIL || 'jonatasalves2005rodrigues@gmail.com';
+const ownerPassword = process.env.OWNER_PASSWORD || '91280057';
 
 app.use(cors());
 app.use(express.json());

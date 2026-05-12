@@ -1,4 +1,4 @@
-﻿const CACHE_VERSION = 'navalha-v2';
+const CACHE_VERSION = 'navalha-v3';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const STATIC_ASSETS = [
   '/',
@@ -41,7 +41,7 @@ self.addEventListener('fetch', (event) => {
 
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
-      fetch(req).catch(() => caches.match(req).then((cached) => cached || new Response(JSON.stringify({ error: 'Sem conexão.' }), {
+      fetch(req).catch(() => caches.match(req).then((cached) => cached || new Response(JSON.stringify({ error: 'Sem conex�o.' }), {
         status: 503,
         headers: { 'Content-Type': 'application/json' }
       })))
