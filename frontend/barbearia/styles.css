@@ -160,7 +160,7 @@ nav {
 .owner-stealth {
   width: min(1180px, 92vw);
   margin: 10px auto 18px;
-  text-align: right;
+  text-align: left;
 }
 
 .owner-stealth-link {
