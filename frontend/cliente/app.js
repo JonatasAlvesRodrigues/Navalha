@@ -32,8 +32,14 @@ async function fetchJson(url, options = {}) {
   const headers = options.headers || {};
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(url, { ...options, headers });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Falha na requisicao');
+  const text = await res.text();
+  const data = (() => {
+    try { return JSON.parse(text); } catch (_e) { return {}; }
+  })();
+  if (!res.ok) {
+    const message = data.error || data.detail || (text && text.slice(0, 220)) || `Falha na requisição (${res.status})`;
+    throw new Error(message);
+  }
   return data;
 }
 

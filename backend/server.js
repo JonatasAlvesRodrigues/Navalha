@@ -272,35 +272,36 @@ app.post('/api/auth/owner-login', async (req, res) => {
 });
 
 app.post('/api/auth/register-client', async (req, res) => {
-  const { fullName, phone, email, password } = req.body;
-  const tenantSlug = tenantSlugFromReq(req);
-
-  if (!tenantSlug || !fullName || !phone || !password) {
-    return res.status(400).json({ error: 'tenantSlug, fullName, phone e password são obrigatórios.' });
-  }
-
-  const tenant = await resolveTenantIdBySlug(tenantSlug);
-  if (!tenant) return res.status(404).json({ error: 'Barbearia não encontrada.' });
-
-  const normalizedPhone = String(phone).replace(/\D/g, '');
-  if (normalizedPhone.length < 10) {
-    return res.status(400).json({ error: 'Telefone inválido.' });
-  }
-
-  const existing = await pool.query(
-    `SELECT 1
-     FROM users
-     WHERE barbershop_id = $1
-       AND (phone = $2 OR ($3 IS NOT NULL AND email = $3))`,
-    [tenant.id, normalizedPhone, email || null]
-  );
-  if (existing.rowCount) {
-    return res.status(409).json({ error: 'Já existe conta com esse telefone/email nesta barbearia.' });
-  }
-
-  const hash = await bcrypt.hash(password, 10);
   const conn = await pool.connect();
   try {
+    const { fullName, phone, email, password } = req.body;
+    const tenantSlug = tenantSlugFromReq(req);
+
+    if (!tenantSlug || !fullName || !phone || !password) {
+      return res.status(400).json({ error: 'tenantSlug, fullName, phone e password são obrigatórios.' });
+    }
+
+    const tenant = await resolveTenantIdBySlug(tenantSlug);
+    if (!tenant) return res.status(404).json({ error: 'Barbearia não encontrada.' });
+
+    const normalizedPhone = String(phone).replace(/\D/g, '');
+    if (normalizedPhone.length < 10) {
+      return res.status(400).json({ error: 'Telefone inválido.' });
+    }
+
+    const existing = await pool.query(
+      `SELECT 1
+       FROM users
+       WHERE barbershop_id = $1
+         AND (phone = $2 OR ($3 IS NOT NULL AND email = $3))`,
+      [tenant.id, normalizedPhone, email || null]
+    );
+    if (existing.rowCount) {
+      return res.status(409).json({ error: 'Já existe conta com esse telefone/email nesta barbearia.' });
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+
     await conn.query('BEGIN');
     const userInsert = await conn.query(
       `INSERT INTO users (full_name, email, phone, role, password_hash, barbershop_id, is_active)
@@ -335,8 +336,9 @@ app.post('/api/auth/register-client', async (req, res) => {
       },
     });
   } catch (error) {
-    await conn.query('ROLLBACK');
-    return res.status(400).json({ error: error.message });
+    try { await conn.query('ROLLBACK'); } catch (_e) { /* noop */ }
+    console.error('[REGISTER CLIENT] error:', error.message);
+    return res.status(500).json({ error: `Falha ao cadastrar cliente: ${error.message}` });
   } finally {
     conn.release();
   }
