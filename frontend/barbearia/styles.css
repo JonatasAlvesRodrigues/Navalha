@@ -284,6 +284,14 @@ body.owner-authenticated .owner-area {
   display: block;
 }
 
+#screen-dono .owner-private {
+  display: none;
+}
+
+body.owner-authenticated #screen-dono .owner-private {
+  display: block;
+}
+
 h2 {
   margin: 0 0 12px;
   font-family: 'Oswald', sans-serif;
