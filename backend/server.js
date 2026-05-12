@@ -32,6 +32,7 @@ function createToken(user) {
       phone: user.phone,
       tenantId: user.tenant_id,
       tenantSlug: user.tenant_slug,
+      forcePasswordChange: Boolean(user.must_change_password),
     },
     jwtSecret,
     { expiresIn: '8h' }
@@ -45,6 +46,9 @@ function authRequired(req, res, next) {
 
   try {
     req.user = jwt.verify(token, jwtSecret);
+    if (req.user.forcePasswordChange && req.path !== '/api/auth/change-password') {
+      return res.status(403).json({ error: 'Troca de senha obrigatória no primeiro acesso.', requirePasswordChange: true });
+    }
     return next();
   } catch (_err) {
     return res.status(401).json({ error: 'Token inválido ou expirado.' });
@@ -78,6 +82,7 @@ function tenantSlugFromReq(req) {
 
 async function ensureOwnerTables() {
   await pool.query(`ALTER TABLE barbershops ADD COLUMN IF NOT EXISTS city VARCHAR(120)`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false`);
 
   await pool.query(
     `CREATE TABLE IF NOT EXISTS platform_trials (
@@ -234,7 +239,7 @@ app.post('/api/auth/login', async (req, res) => {
   if (!tenant) return res.status(404).json({ error: 'Barbearia não encontrada.' });
 
   const { rows } = await pool.query(
-    `SELECT u.id, u.full_name, u.email, u.phone, u.role, u.password_hash, u.is_active,
+    `SELECT u.id, u.full_name, u.email, u.phone, u.role, u.password_hash, u.is_active, u.must_change_password,
             b.id AS tenant_id, b.slug AS tenant_slug
      FROM users u
      JOIN barbershops b ON b.id = u.barbershop_id
@@ -252,6 +257,7 @@ app.post('/api/auth/login', async (req, res) => {
   const token = createToken(user);
   res.json({
     token,
+    requirePasswordChange: Boolean(user.must_change_password),
     user: {
       id: user.id,
       fullName: user.full_name,
@@ -259,6 +265,57 @@ app.post('/api/auth/login', async (req, res) => {
       phone: user.phone,
       role: user.role,
       tenantSlug: user.tenant_slug,
+    },
+  });
+});
+
+app.patch('/api/auth/change-password', authRequired, async (req, res) => {
+  const userId = Number(req.user?.id);
+  const currentPassword = String(req.body?.currentPassword || '');
+  const newPassword = String(req.body?.newPassword || '');
+  if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ error: 'Usuário inválido.' });
+  if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Senha atual e nova senha são obrigatórias.' });
+  if (newPassword.length < 6) return res.status(400).json({ error: 'A nova senha deve ter no mínimo 6 caracteres.' });
+
+  const { rows } = await pool.query(
+    `SELECT id, password_hash
+     FROM users
+     WHERE id = $1 AND is_active = true`,
+    [userId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+  const validPassword = await bcrypt.compare(currentPassword, rows[0].password_hash);
+  if (!validPassword) return res.status(401).json({ error: 'Senha atual inválida.' });
+
+  const newHash = await bcrypt.hash(newPassword, 10);
+  const { rows: updatedRows } = await pool.query(
+    `UPDATE users
+     SET password_hash = $1,
+         must_change_password = false
+     WHERE id = $2
+     RETURNING id, full_name, email, phone, role, barbershop_id`,
+    [newHash, userId]
+  );
+  const updatedUser = updatedRows[0];
+  const { rows: tenantRows } = await pool.query('SELECT id, slug FROM barbershops WHERE id = $1', [updatedUser.barbershop_id]);
+  const token = createToken({
+    ...updatedUser,
+    tenant_id: tenantRows[0]?.id || null,
+    tenant_slug: tenantRows[0]?.slug || null,
+    must_change_password: false,
+  });
+  return res.json({
+    ok: true,
+    token,
+    requirePasswordChange: false,
+    user: {
+      id: updatedUser.id,
+      fullName: updatedUser.full_name,
+      email: updatedUser.email,
+      phone: updatedUser.phone,
+      role: updatedUser.role,
+      tenantSlug: tenantRows[0]?.slug || null,
     },
   });
 });
@@ -1007,10 +1064,26 @@ app.get('/api/owner/barbershops', authRequired, ownerOnly, async (_req, res) => 
       t.trial_starts_at,
       t.trial_ends_at,
       t.is_active AS trial_active,
-      t.notes AS trial_notes
+      t.notes AS trial_notes,
+      ou.id AS owner_user_id,
+      ou.full_name AS owner_full_name,
+      ou.email AS owner_email,
+      ou.phone AS owner_phone,
+      ou.must_change_password AS owner_must_change_password,
+      ob.commission_percent AS owner_commission_percent
      FROM barbershops b
      LEFT JOIN platform_subscriptions s ON s.barbershop_id = b.id
      LEFT JOIN platform_trials t ON t.barbershop_id = b.id
+     LEFT JOIN LATERAL (
+       SELECT u.id, u.full_name, u.email, u.phone, u.must_change_password
+       FROM users u
+       WHERE u.barbershop_id = b.id
+         AND u.role = 'BARBEIRO'
+         AND u.is_active = true
+       ORDER BY u.id ASC
+       LIMIT 1
+     ) ou ON true
+     LEFT JOIN barbers ob ON ob.user_id = ou.id
      ORDER BY b.id DESC`
   );
   return res.json(rows);
@@ -1043,8 +1116,8 @@ app.post('/api/owner/barbershops', authRequired, ownerOnly, async (req, res) => 
     const shop = shopInsert.rows[0];
 
     const userInsert = await conn.query(
-      `INSERT INTO users (full_name, email, phone, role, password_hash, barbershop_id, is_active)
-       VALUES ($1, $2, $3, 'BARBEIRO', $4, $5, true)
+      `INSERT INTO users (full_name, email, phone, role, password_hash, barbershop_id, is_active, must_change_password)
+       VALUES ($1, $2, $3, 'BARBEIRO', $4, $5, true, true)
        RETURNING id`,
       [String(ownerFullName).trim(), ownerEmail ? String(ownerEmail).trim() : null, String(ownerPhone).trim(), hash, shop.id]
     );
@@ -1064,6 +1137,139 @@ app.post('/api/owner/barbershops', authRequired, ownerOnly, async (req, res) => 
 
     await conn.query('COMMIT');
     return res.status(201).json(shop);
+  } catch (error) {
+    await conn.query('ROLLBACK');
+    return res.status(400).json({ error: error.message });
+  } finally {
+    conn.release();
+  }
+});
+
+app.patch('/api/owner/barbershops/:id', authRequired, ownerOnly, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'ID inválido.' });
+
+  const {
+    name,
+    slug,
+    city,
+    isActive,
+    ownerFullName,
+    ownerPhone,
+    ownerEmail,
+    ownerPassword,
+    ownerCommissionPercent,
+    planName,
+    monthlyPrice,
+    status,
+    notes,
+  } = req.body || {};
+
+  if (status && !['TRIAL', 'ATIVA', 'BLOQUEADA', 'CANCELADA'].includes(status)) {
+    return res.status(400).json({ error: 'status inválido.' });
+  }
+  const commission = ownerCommissionPercent == null ? null : Number(ownerCommissionPercent);
+  if (commission != null && (!Number.isFinite(commission) || commission < 0 || commission > 100)) {
+    return res.status(400).json({ error: 'ownerCommissionPercent deve estar entre 0 e 100.' });
+  }
+  const price = monthlyPrice == null ? null : Number(monthlyPrice);
+  if (price != null && (!Number.isFinite(price) || price < 0)) {
+    return res.status(400).json({ error: 'monthlyPrice inválido.' });
+  }
+
+  let normalizedSlug = null;
+  if (slug != null && String(slug).trim() !== '') {
+    normalizedSlug = String(slug).trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    if (!normalizedSlug) return res.status(400).json({ error: 'Slug inválido.' });
+  }
+
+  const conn = await pool.connect();
+  try {
+    await conn.query('BEGIN');
+    const shopResult = await conn.query(
+      `UPDATE barbershops
+       SET name = COALESCE($1, name),
+           slug = COALESCE($2, slug),
+           city = COALESCE($3, city),
+           is_active = COALESCE($4, is_active)
+       WHERE id = $5
+       RETURNING id`,
+      [name ? String(name).trim() : null, normalizedSlug, city ? String(city).trim() : null, isActive ?? null, id]
+    );
+    if (!shopResult.rowCount) throw new Error('Barbearia não encontrada.');
+
+    const { rows: ownerRows } = await conn.query(
+      `SELECT u.id
+       FROM users u
+       WHERE u.barbershop_id = $1
+         AND u.role = 'BARBEIRO'
+         AND u.is_active = true
+       ORDER BY u.id ASC
+       LIMIT 1`,
+      [id]
+    );
+
+    if (ownerRows.length) {
+      const ownerId = ownerRows[0].id;
+      await conn.query(
+        `UPDATE users
+         SET full_name = COALESCE($1, full_name),
+             phone = COALESCE($2, phone),
+             email = COALESCE($3, email)
+         WHERE id = $4`,
+        [
+          ownerFullName ? String(ownerFullName).trim() : null,
+          ownerPhone ? String(ownerPhone).trim() : null,
+          ownerEmail === '' ? null : (ownerEmail ? String(ownerEmail).trim() : null),
+          ownerId,
+        ]
+      );
+
+      if (commission != null) {
+        await rebalanceBarberCommissions(conn, id, ownerId, commission);
+      }
+
+      if (ownerPassword != null && String(ownerPassword).trim() !== '') {
+        const hash = await bcrypt.hash(String(ownerPassword), 10);
+        await conn.query(
+          `UPDATE users
+           SET password_hash = $1,
+               must_change_password = true
+           WHERE id = $2`,
+          [hash, ownerId]
+        );
+      }
+    }
+
+    if (planName != null || price != null || status != null || notes != null) {
+      await conn.query(
+        `INSERT INTO platform_subscriptions (barbershop_id, plan_name, monthly_price, status, notes, billing_started_at, canceled_at, updated_at)
+         VALUES ($1, COALESCE($2, 'TRIAL'), COALESCE($3, 0), COALESCE($4, 'TRIAL'), $5,
+                 CASE WHEN $4 = 'ATIVA' THEN NOW() ELSE NULL END,
+                 CASE WHEN $4 = 'CANCELADA' THEN NOW() ELSE NULL END,
+                 NOW())
+         ON CONFLICT (barbershop_id)
+         DO UPDATE SET
+           plan_name = COALESCE(EXCLUDED.plan_name, platform_subscriptions.plan_name),
+           monthly_price = COALESCE(EXCLUDED.monthly_price, platform_subscriptions.monthly_price),
+           status = COALESCE(EXCLUDED.status, platform_subscriptions.status),
+           notes = COALESCE(EXCLUDED.notes, platform_subscriptions.notes),
+           billing_started_at = CASE
+             WHEN COALESCE(EXCLUDED.status, platform_subscriptions.status) = 'ATIVA'
+               THEN COALESCE(platform_subscriptions.billing_started_at, NOW())
+             ELSE platform_subscriptions.billing_started_at
+           END,
+           canceled_at = CASE
+             WHEN COALESCE(EXCLUDED.status, platform_subscriptions.status) = 'CANCELADA' THEN NOW()
+             ELSE platform_subscriptions.canceled_at
+           END,
+           updated_at = NOW()`,
+        [id, planName ?? null, price, status ?? null, notes ?? null]
+      );
+    }
+
+    await conn.query('COMMIT');
+    return res.json({ ok: true });
   } catch (error) {
     await conn.query('ROLLBACK');
     return res.status(400).json({ error: error.message });

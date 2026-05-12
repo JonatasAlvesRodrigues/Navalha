@@ -36,9 +36,14 @@ const createBarbershopForm = document.getElementById('createBarbershopForm');
 const createBarbershopFeedback = document.getElementById('createBarbershopFeedback');
 const updateSubscriptionForm = document.getElementById('updateSubscriptionForm');
 const subscriptionFeedback = document.getElementById('subscriptionFeedback');
+const editBarbershopForm = document.getElementById('editBarbershopForm');
+const editBarbershopFeedback = document.getElementById('editBarbershopFeedback');
+const firstAccessPasswordForm = document.getElementById('firstAccessPasswordForm');
+const firstAccessFeedback = document.getElementById('firstAccessFeedback');
 
 let session = JSON.parse(localStorage.getItem(`barbearia_session_${tenantSlug}`) || 'null');
 let lastRemoved = null;
+let ownerRowsCache = [];
 
 const availableScreens = ['inicio', 'dashboard', 'vitrine', 'gestao', 'agendamentos', 'galeria', 'dono'];
 
@@ -48,6 +53,18 @@ function isOwnerSession() {
 
 function updateOwnerUI() {
   document.body.classList.toggle('owner-authenticated', isOwnerSession());
+}
+
+function isPasswordChangeRequired() {
+  return Boolean(session?.requirePasswordChange);
+}
+
+function updateFirstAccessUI() {
+  if (!firstAccessPasswordForm) return;
+  firstAccessPasswordForm.hidden = !isPasswordChangeRequired();
+  if (isPasswordChangeRequired()) {
+    authFeedback.textContent = 'Primeiro acesso detectado. Troque a senha para liberar o sistema.';
+  }
 }
 
 function setActiveScreen(screenName) {
@@ -138,6 +155,7 @@ async function login(email, password) {
   localStorage.setItem(`barbearia_session_${tenantSlug}`, JSON.stringify(data));
   authFeedback.textContent = `Conectado como ${data.user.fullName} (${data.user.role}).`;
   updateOwnerUI();
+  updateFirstAccessUI();
 }
 
 async function ownerLogin(email, password) {
@@ -151,6 +169,7 @@ async function ownerLogin(email, password) {
   ownerAuthFeedback.textContent = `Conectado como ${data.user.fullName}.`;
   authFeedback.textContent = 'Sessão atual migrada para modo Dono do Sistema.';
   updateOwnerUI();
+  updateFirstAccessUI();
 }
 
 function logout() {
@@ -159,13 +178,15 @@ function logout() {
   authFeedback.textContent = 'Sessão encerrada.';
   ownerAuthFeedback.textContent = '';
   trialFeedback.textContent = '';
+  if (firstAccessFeedback) firstAccessFeedback.textContent = '';
   updateOwnerUI();
+  updateFirstAccessUI();
   setActiveScreen('inicio');
 }
 
 function ownerTable(rows) {
   if (!rows.length) return '<p>Nenhuma barbearia cadastrada.</p>';
-  return `<table><thead><tr><th>ID</th><th>Nome</th><th>Cidade</th><th>Slug</th><th>Ativa</th><th>Plano</th><th>Preço</th><th>Status</th><th>Trial até</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r.id}</td><td>${r.name}</td><td>${r.city || '-'}</td><td>${r.slug}</td><td>${r.is_active ? 'SIM' : 'NAO'}</td><td>${r.plan_name || 'TRIAL'}</td><td>${brl(r.monthly_price || 0)}</td><td>${r.subscription_status || 'TRIAL'}</td><td>${r.trial_ends_at ? new Date(r.trial_ends_at).toLocaleDateString('pt-BR') : '-'}</td></tr>`).join('')}</tbody></table>`;
+  return `<table><thead><tr><th>ID</th><th>Nome</th><th>Cidade</th><th>Slug</th><th>Ativa</th><th>Dono</th><th>Plano</th><th>Preço</th><th>Status</th><th>Trial até</th><th>Ação</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r.id}</td><td>${r.name}</td><td>${r.city || '-'}</td><td>${r.slug}</td><td>${r.is_active ? 'SIM' : 'NAO'}</td><td>${r.owner_full_name || '-'}</td><td>${r.plan_name || 'TRIAL'}</td><td>${brl(r.monthly_price || 0)}</td><td>${r.subscription_status || 'TRIAL'}</td><td>${r.trial_ends_at ? new Date(r.trial_ends_at).toLocaleDateString('pt-BR') : '-'}</td><td><button class="ghost" type="button" onclick="prefillBarbershopEdit(${r.id})">Editar</button></td></tr>`).join('')}</tbody></table>`;
 }
 
 async function loadOwnerOverview() {
@@ -180,8 +201,31 @@ async function loadOwnerOverview() {
 async function loadOwnerBarbershops() {
   if (!isOwnerSession()) return;
   const rows = await fetchJson('/api/owner/barbershops');
+  ownerRowsCache = rows;
   ownerBarbershopsTable.innerHTML = ownerTable(rows);
 }
+
+window.prefillBarbershopEdit = (id) => {
+  const row = ownerRowsCache.find((item) => item.id === Number(id));
+  if (!row) return;
+  document.getElementById('editShopId').value = row.id;
+  document.getElementById('editShopName').value = row.name || '';
+  document.getElementById('editShopSlug').value = row.slug || '';
+  document.getElementById('editShopCity').value = row.city || '';
+  document.getElementById('editShopIsActive').value = row.is_active ? 'true' : 'false';
+  document.getElementById('editOwnerName').value = row.owner_full_name || '';
+  document.getElementById('editOwnerPhone').value = row.owner_phone || '';
+  document.getElementById('editOwnerEmail').value = row.owner_email || '';
+  document.getElementById('editOwnerPassword').value = '';
+  document.getElementById('editOwnerCommission').value = row.owner_commission_percent ?? '';
+  document.getElementById('editSubPlanName').value = row.plan_name || '';
+  document.getElementById('editSubMonthlyPrice').value = row.monthly_price ?? '';
+  document.getElementById('editSubStatus').value = row.subscription_status || '';
+  document.getElementById('editSubNotes').value = row.trial_notes || '';
+  if (editBarbershopFeedback) editBarbershopFeedback.textContent = `Dados da barbearia ${row.id} carregados para edição.`;
+  setActiveScreen('dono');
+  window.location.hash = 'dono';
+};
 
 async function loadOwnerFinance() {
   if (!isOwnerSession()) return;
@@ -454,6 +498,7 @@ document.getElementById('loginForm').addEventListener('submit', async (event) =>
   try {
     await login(document.getElementById('loginEmail').value, document.getElementById('loginPassword').value);
     await Promise.all([loadBarbers(), loadServices()]);
+    if (isPasswordChangeRequired()) return;
     if (session?.user?.role === 'BARBEIRO') {
       await Promise.all([loadDashboard(), loadAdminAppointments(), loadProducts()]);
     }
@@ -463,6 +508,32 @@ document.getElementById('loginForm').addEventListener('submit', async (event) =>
       window.location.hash = 'dono';
     }
   } catch (error) { authFeedback.textContent = error.message; }
+});
+
+firstAccessPasswordForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    if (!session?.token) throw new Error('Faça login primeiro.');
+    const currentPassword = document.getElementById('firstAccessCurrentPassword').value;
+    const newPassword = document.getElementById('firstAccessNewPassword').value;
+    const confirmPassword = document.getElementById('firstAccessNewPasswordConfirm').value;
+    if (newPassword !== confirmPassword) throw new Error('A confirmação da nova senha não confere.');
+    const result = await fetchJson('/api/auth/change-password', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    session = result;
+    localStorage.setItem(`barbearia_session_${tenantSlug}`, JSON.stringify(result));
+    firstAccessPasswordForm.reset();
+    firstAccessFeedback.textContent = 'Senha atualizada com sucesso. Acesso liberado.';
+    updateFirstAccessUI();
+    if (session?.user?.role === 'BARBEIRO') {
+      await Promise.all([loadDashboard(), loadAdminAppointments(), loadProducts()]);
+    }
+  } catch (error) {
+    firstAccessFeedback.textContent = error.message;
+  }
 });
 
 document.getElementById('logoutBtn').addEventListener('click', logout);
@@ -554,6 +625,40 @@ updateSubscriptionForm?.addEventListener('submit', async (event) => {
   }
 });
 
+editBarbershopForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    if (!isOwnerSession()) throw new Error('Faça login como dono para editar barbearias.');
+    const id = Number(document.getElementById('editShopId').value);
+    if (!id) throw new Error('Informe o ID da barbearia.');
+    const isActiveRaw = document.getElementById('editShopIsActive').value;
+    const payload = {
+      name: document.getElementById('editShopName').value.trim() || null,
+      slug: document.getElementById('editShopSlug').value.trim() || null,
+      city: document.getElementById('editShopCity').value.trim() || null,
+      isActive: isActiveRaw === '' ? null : isActiveRaw === 'true',
+      ownerFullName: document.getElementById('editOwnerName').value.trim() || null,
+      ownerPhone: document.getElementById('editOwnerPhone').value.trim() || null,
+      ownerEmail: document.getElementById('editOwnerEmail').value.trim() || null,
+      ownerPassword: document.getElementById('editOwnerPassword').value || null,
+      ownerCommissionPercent: document.getElementById('editOwnerCommission').value ? Number(document.getElementById('editOwnerCommission').value) : null,
+      planName: document.getElementById('editSubPlanName').value.trim() || null,
+      monthlyPrice: document.getElementById('editSubMonthlyPrice').value ? Number(document.getElementById('editSubMonthlyPrice').value) : null,
+      status: document.getElementById('editSubStatus').value || null,
+      notes: document.getElementById('editSubNotes').value.trim() || null,
+    };
+    await fetchJson(`/api/owner/barbershops/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    editBarbershopFeedback.textContent = `Barbearia ${id} atualizada com sucesso.`;
+    await Promise.all([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
+  } catch (error) {
+    editBarbershopFeedback.textContent = error.message;
+  }
+});
+
 loadGalleryBtn.addEventListener('click', async () => {
   const clientId = Number(galleryClientId.value);
   if (!clientId) return (galleryGrid.innerHTML = '<p>Informe um ID válido.</p>');
@@ -572,9 +677,10 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 (async function init() {
   try {
     updateOwnerUI();
+    updateFirstAccessUI();
     initScreenNavigation();
     await Promise.all([loadServices(), loadBarbers()]);
-    if (session?.token && session.user.role === 'BARBEIRO') {
+    if (session?.token && session.user.role === 'BARBEIRO' && !isPasswordChangeRequired()) {
       authFeedback.textContent = `Sessão ativa: ${session.user.fullName} (${session.user.role}).`;
       await Promise.all([loadDashboard(), loadAdminAppointments(), loadProducts()]);
     }

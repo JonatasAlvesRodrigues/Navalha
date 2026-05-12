@@ -57,6 +57,13 @@
         </form>
         <p class="meta">Demo barbeiro: carlos@barbearia.com / admin123</p>
         <p id="authFeedback" class="feedback"></p>
+        <form id="firstAccessPasswordForm" class="mini-grid" hidden>
+          <input type="password" id="firstAccessCurrentPassword" placeholder="Senha atual (inicial)" />
+          <input type="password" id="firstAccessNewPassword" placeholder="Nova senha (mínimo 6 caracteres)" />
+          <input type="password" id="firstAccessNewPasswordConfirm" placeholder="Confirmar nova senha" />
+          <button type="submit" class="cta">Trocar senha para liberar acesso</button>
+        </form>
+        <p id="firstAccessFeedback" class="feedback"></p>
       </section>
     </section>
 
@@ -253,6 +260,38 @@
             <h2>Barbearias no sistema</h2>
             <div id="ownerBarbershopsTable" class="table-wrap"></div>
           </article>
+        </section>
+
+        <section class="panel reveal">
+          <h2>Editar barbearia completa</h2>
+          <form id="editBarbershopForm" class="mini-grid">
+            <input id="editShopId" type="number" min="1" placeholder="ID da barbearia" />
+            <input id="editShopName" placeholder="Nome da barbearia" />
+            <input id="editShopSlug" placeholder="Slug (ex: studio-santos)" />
+            <input id="editShopCity" placeholder="Cidade" />
+            <select id="editShopIsActive">
+              <option value="">Barbearia ativa?</option>
+              <option value="true">SIM</option>
+              <option value="false">NÃO</option>
+            </select>
+            <input id="editOwnerName" placeholder="Nome do responsável" />
+            <input id="editOwnerPhone" placeholder="Telefone do responsável" />
+            <input id="editOwnerEmail" placeholder="Email do responsável" />
+            <input id="editOwnerPassword" placeholder="Nova senha inicial (opcional)" />
+            <input id="editOwnerCommission" type="number" step="0.01" placeholder="Comissão responsável %" />
+            <input id="editSubPlanName" placeholder="Plano (TRIAL, START, PRO...)" />
+            <input id="editSubMonthlyPrice" type="number" step="0.01" placeholder="Preço mensal (R$)" />
+            <select id="editSubStatus">
+              <option value="">Status assinatura</option>
+              <option value="TRIAL">TRIAL</option>
+              <option value="ATIVA">ATIVA</option>
+              <option value="BLOQUEADA">BLOQUEADA</option>
+              <option value="CANCELADA">CANCELADA</option>
+            </select>
+            <input id="editSubNotes" placeholder="Observações da assinatura" />
+            <button type="submit" class="cta">Salvar edição completa</button>
+          </form>
+          <p id="editBarbershopFeedback" class="feedback"></p>
         </section>
 
         <section class="panel reveal">
