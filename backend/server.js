@@ -46,9 +46,6 @@ function authRequired(req, res, next) {
 
   try {
     req.user = jwt.verify(token, jwtSecret);
-    if (req.user.forcePasswordChange && req.path !== '/api/auth/change-password') {
-      return res.status(403).json({ error: 'Troca de senha obrigatória no primeiro acesso.', requirePasswordChange: true });
-    }
     return next();
   } catch (_err) {
     return res.status(401).json({ error: 'Token inválido ou expirado.' });

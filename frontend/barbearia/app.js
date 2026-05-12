@@ -38,8 +38,8 @@ const updateSubscriptionForm = document.getElementById('updateSubscriptionForm')
 const subscriptionFeedback = document.getElementById('subscriptionFeedback');
 const editBarbershopForm = document.getElementById('editBarbershopForm');
 const editBarbershopFeedback = document.getElementById('editBarbershopFeedback');
-const firstAccessPasswordForm = document.getElementById('firstAccessPasswordForm');
-const firstAccessFeedback = document.getElementById('firstAccessFeedback');
+const barberChangePasswordForm = document.getElementById('barberChangePasswordForm');
+const barberPasswordFeedback = document.getElementById('barberPasswordFeedback');
 
 let session = JSON.parse(localStorage.getItem(`barbearia_session_${tenantSlug}`) || 'null');
 let lastRemoved = null;
@@ -53,18 +53,6 @@ function isOwnerSession() {
 
 function updateOwnerUI() {
   document.body.classList.toggle('owner-authenticated', isOwnerSession());
-}
-
-function isPasswordChangeRequired() {
-  return Boolean(session?.requirePasswordChange);
-}
-
-function updateFirstAccessUI() {
-  if (!firstAccessPasswordForm) return;
-  firstAccessPasswordForm.hidden = !isPasswordChangeRequired();
-  if (isPasswordChangeRequired()) {
-    authFeedback.textContent = 'Primeiro acesso detectado. Troque a senha para liberar o sistema.';
-  }
 }
 
 function setActiveScreen(screenName) {
@@ -166,7 +154,6 @@ async function login(email, password) {
   localStorage.setItem(`barbearia_session_${tenantSlug}`, JSON.stringify(data));
   authFeedback.textContent = `Conectado como ${data.user.fullName} (${data.user.role}).`;
   updateOwnerUI();
-  updateFirstAccessUI();
 }
 
 async function ownerLogin(email, password) {
@@ -180,7 +167,6 @@ async function ownerLogin(email, password) {
   ownerAuthFeedback.textContent = `Conectado como ${data.user.fullName}.`;
   authFeedback.textContent = 'Sessão atual migrada para modo Dono do Sistema.';
   updateOwnerUI();
-  updateFirstAccessUI();
 }
 
 function logout() {
@@ -189,9 +175,8 @@ function logout() {
   authFeedback.textContent = 'Sessão encerrada.';
   ownerAuthFeedback.textContent = '';
   trialFeedback.textContent = '';
-  if (firstAccessFeedback) firstAccessFeedback.textContent = '';
+  if (barberPasswordFeedback) barberPasswordFeedback.textContent = '';
   updateOwnerUI();
-  updateFirstAccessUI();
   setActiveScreen('inicio');
 }
 
@@ -528,7 +513,6 @@ document.getElementById('loginForm').addEventListener('submit', async (event) =>
   try {
     await login(document.getElementById('loginEmail').value, document.getElementById('loginPassword').value);
     await Promise.all([loadBarbers(), loadServices()]);
-    if (isPasswordChangeRequired()) return;
     if (session?.user?.role === 'BARBEIRO') {
       await Promise.all([loadDashboard(), loadAdminAppointments(), loadProducts()]);
     }
@@ -540,13 +524,13 @@ document.getElementById('loginForm').addEventListener('submit', async (event) =>
   } catch (error) { authFeedback.textContent = error.message; }
 });
 
-firstAccessPasswordForm?.addEventListener('submit', async (event) => {
+barberChangePasswordForm?.addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
-    if (!session?.token) throw new Error('Faça login primeiro.');
-    const currentPassword = document.getElementById('firstAccessCurrentPassword').value;
-    const newPassword = document.getElementById('firstAccessNewPassword').value;
-    const confirmPassword = document.getElementById('firstAccessNewPasswordConfirm').value;
+    if (!session?.token || session?.user?.role !== 'BARBEIRO') throw new Error('Faça login como barbeiro para alterar senha.');
+    const currentPassword = document.getElementById('barberCurrentPassword').value;
+    const newPassword = document.getElementById('barberNewPassword').value;
+    const confirmPassword = document.getElementById('barberNewPasswordConfirm').value;
     if (newPassword !== confirmPassword) throw new Error('A confirmação da nova senha não confere.');
     const result = await fetchJson('/api/auth/change-password', {
       method: 'PATCH',
@@ -555,14 +539,10 @@ firstAccessPasswordForm?.addEventListener('submit', async (event) => {
     });
     session = result;
     localStorage.setItem(`barbearia_session_${tenantSlug}`, JSON.stringify(result));
-    firstAccessPasswordForm.reset();
-    firstAccessFeedback.textContent = 'Senha atualizada com sucesso. Acesso liberado.';
-    updateFirstAccessUI();
-    if (session?.user?.role === 'BARBEIRO') {
-      await Promise.all([loadDashboard(), loadAdminAppointments(), loadProducts()]);
-    }
+    barberChangePasswordForm.reset();
+    barberPasswordFeedback.textContent = 'Senha atualizada com sucesso.';
   } catch (error) {
-    firstAccessFeedback.textContent = error.message;
+    barberPasswordFeedback.textContent = error.message;
   }
 });
 
@@ -707,10 +687,9 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 (async function init() {
   try {
     updateOwnerUI();
-    updateFirstAccessUI();
     initScreenNavigation();
     await Promise.all([loadServices(), loadBarbers()]);
-    if (session?.token && session.user.role === 'BARBEIRO' && !isPasswordChangeRequired()) {
+    if (session?.token && session.user.role === 'BARBEIRO') {
       authFeedback.textContent = `Sessão ativa: ${session.user.fullName} (${session.user.role}).`;
       await Promise.all([loadDashboard(), loadAdminAppointments(), loadProducts()]);
     }

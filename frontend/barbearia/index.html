@@ -57,13 +57,6 @@
         </form>
         <p class="meta">Demo barbeiro: carlos@barbearia.com / admin123</p>
         <p id="authFeedback" class="feedback"></p>
-        <form id="firstAccessPasswordForm" class="mini-grid" hidden>
-          <input type="password" id="firstAccessCurrentPassword" placeholder="Senha atual (inicial)" />
-          <input type="password" id="firstAccessNewPassword" placeholder="Nova senha (mínimo 6 caracteres)" />
-          <input type="password" id="firstAccessNewPasswordConfirm" placeholder="Confirmar nova senha" />
-          <button type="submit" class="cta">Trocar senha para liberar acesso</button>
-        </form>
-        <p id="firstAccessFeedback" class="feedback"></p>
       </section>
     </section>
 
@@ -165,6 +158,18 @@
           <div id="productsAdminTable" class="table-wrap"></div>
         </div>
         <p id="mgmtFeedback" class="feedback"></p>
+      </section>
+
+      <section class="panel reveal">
+        <h2>Segurança</h2>
+        <p class="meta">Após entrar no sistema, altere sua senha quando quiser.</p>
+        <form id="barberChangePasswordForm" class="mini-grid">
+          <input type="password" id="barberCurrentPassword" placeholder="Senha atual" />
+          <input type="password" id="barberNewPassword" placeholder="Nova senha (mínimo 6 caracteres)" />
+          <input type="password" id="barberNewPasswordConfirm" placeholder="Confirmar nova senha" />
+          <button type="submit" class="cta">Alterar senha</button>
+        </form>
+        <p id="barberPasswordFeedback" class="feedback"></p>
       </section>
     </section>
 
