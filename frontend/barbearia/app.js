@@ -40,6 +40,7 @@ const editBarbershopForm = document.getElementById('editBarbershopForm');
 const editBarbershopFeedback = document.getElementById('editBarbershopFeedback');
 const barberChangePasswordForm = document.getElementById('barberChangePasswordForm');
 const barberPasswordFeedback = document.getElementById('barberPasswordFeedback');
+const ownerCityOptions = document.getElementById('ownerCityOptions');
 
 let session = JSON.parse(localStorage.getItem(`barbearia_session_${tenantSlug}`) || 'null');
 let lastRemoved = null;
@@ -230,6 +231,12 @@ async function loadOwnerFinance() {
   ownerPaidShops.textContent = data.paidShops;
   ownerConversionRate.textContent = `${data.conversionRate}%`;
   ownerChurned.textContent = data.churned;
+}
+
+async function loadOwnerCityOptions() {
+  if (!ownerCityOptions) return;
+  const cities = await fetchJson('/api/public/cities');
+  ownerCityOptions.innerHTML = cities.map((city) => `<option value="${city}"></option>`).join('');
 }
 
 function showUndo() {
@@ -688,6 +695,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
   try {
     updateOwnerUI();
     initScreenNavigation();
+    await loadOwnerCityOptions();
     await Promise.all([loadServices(), loadBarbers()]);
     if (session?.token && session.user.role === 'BARBEIRO') {
       authFeedback.textContent = `Sessão ativa: ${session.user.fullName} (${session.user.role}).`;
