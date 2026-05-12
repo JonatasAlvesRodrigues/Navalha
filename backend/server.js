@@ -272,8 +272,9 @@ app.post('/api/auth/owner-login', async (req, res) => {
 });
 
 app.post('/api/auth/register-client', async (req, res) => {
-  const conn = await pool.connect();
+  let conn;
   try {
+    conn = await pool.connect();
     const { fullName, phone, email, password } = req.body;
     const tenantSlug = tenantSlugFromReq(req);
 
@@ -342,11 +343,13 @@ app.post('/api/auth/register-client', async (req, res) => {
       },
     });
   } catch (error) {
-    try { await conn.query('ROLLBACK'); } catch (_e) { /* noop */ }
+    if (conn) {
+      try { await conn.query('ROLLBACK'); } catch (_e) { /* noop */ }
+    }
     console.error('[REGISTER CLIENT] error:', error.message);
     return res.status(500).json({ error: `Falha ao cadastrar cliente: ${error.message}` });
   } finally {
-    conn.release();
+    if (conn) conn.release();
   }
 });
 
