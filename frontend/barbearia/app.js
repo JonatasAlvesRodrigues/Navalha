@@ -589,13 +589,13 @@ ownerLoginForm?.addEventListener('submit', async (event) => {
       document.getElementById('ownerEmail').value,
       document.getElementById('ownerPassword').value
     );
+    setActiveScreen('dono');
+    window.location.hash = 'dono';
     const results = await Promise.allSettled([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
     const failed = results.find((r) => r.status === 'rejected');
     if (failed) {
-      throw new Error(failed.reason?.message || 'Falha ao carregar dados do painel do dono.');
+      ownerAuthFeedback.textContent = `Conectado, mas houve falha ao carregar parte do painel: ${failed.reason?.message || 'erro desconhecido'}.`;
     }
-    setActiveScreen('dono');
-    window.location.hash = 'dono';
   } catch (error) {
     ownerAuthFeedback.textContent = error.message;
   }
@@ -767,8 +767,13 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     }
     if (isOwnerSession()) {
       ownerAuthFeedback.textContent = `Sessão ativa: ${session.user.fullName}.`;
-      await Promise.all([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
       setActiveScreen('dono');
+      window.location.hash = 'dono';
+      const results = await Promise.allSettled([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
+      const failed = results.find((r) => r.status === 'rejected');
+      if (failed) {
+        ownerAuthFeedback.textContent = `Sessão ativa, mas houve falha ao carregar parte do painel: ${failed.reason?.message || 'erro desconhecido'}.`;
+      }
     }
   } catch (error) {
     mgmtFeedback.textContent = `Erro ao iniciar app: ${error.message}`;
