@@ -251,7 +251,8 @@ app.post('/api/auth/login', async (req, res) => {
          FROM users u
          JOIN barbershops b ON b.id = u.barbershop_id
          WHERE ((LOWER(COALESCE(u.email, '')) = $1) OR (REGEXP_REPLACE(COALESCE(u.phone, ''), '\\D', '', 'g') = $2))
-           AND u.barbershop_id = $3`,
+           AND u.barbershop_id = $3
+           AND u.is_active = true`,
         [identifierEmail, identifierPhone, tenant.id]
       );
       rows = byTenant.rows;
@@ -266,19 +267,25 @@ app.post('/api/auth/login', async (req, res) => {
        FROM users u
        JOIN barbershops b ON b.id = u.barbershop_id
        WHERE ((LOWER(COALESCE(u.email, '')) = $1) OR (REGEXP_REPLACE(COALESCE(u.phone, ''), '\\D', '', 'g') = $2))
+         AND u.is_active = true
          AND b.is_active = true
-       ORDER BY u.id DESC
-       LIMIT 1`,
+       ORDER BY u.id DESC`,
       [identifierEmail, identifierPhone]
     );
     rows = globalLookup.rows;
   }
 
-  if (!rows.length || !rows[0].is_active) return res.status(401).json({ error: 'Credenciais inválidas.' });
+  if (!rows.length) return res.status(401).json({ error: 'Credenciais inválidas.' });
 
-  const user = rows[0];
-  const validPassword = await bcrypt.compare(password, user.password_hash);
-  if (!validPassword) return res.status(401).json({ error: 'Credenciais inválidas.' });
+  let user = null;
+  for (const candidate of rows) {
+    const validPassword = await bcrypt.compare(password, candidate.password_hash);
+    if (validPassword) {
+      user = candidate;
+      break;
+    }
+  }
+  if (!user) return res.status(401).json({ error: 'Credenciais inválidas.' });
 
   const token = createToken(user);
   res.json({
