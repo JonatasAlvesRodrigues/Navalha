@@ -142,6 +142,14 @@ async function fetchJson(url, options = {}) {
   const headers = options.headers || {};
   if (session?.token) headers.Authorization = `Bearer ${session.token}`;
   const response = await fetch(url, { ...options, headers });
+  if (response.status === 401) {
+    session = null;
+    localStorage.removeItem(`barbearia_session_${tenantSlug}`);
+    updateOwnerUI();
+    authFeedback.textContent = 'Sessão expirada. Faça login novamente.';
+    ownerAuthFeedback.textContent = 'Sessão do dono expirada. Entre novamente.';
+    throw new Error('Token inválido ou expirado.');
+  }
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.error || 'Falha na requisição');
@@ -751,6 +759,9 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     updateOwnerUI();
     initScreenNavigation();
     await loadOwnerCityOptions();
+    if (session?.token && session?.user?.role === 'DONO_SISTEMA') {
+      await fetchJson('/api/owner/overview');
+    }
     await Promise.all([loadServices(), loadBarbers()]);
     if (session?.token && session.user.role === 'BARBEIRO') {
       authFeedback.textContent = `Sessão ativa: ${session.user.fullName} (${session.user.role}).`;
