@@ -140,9 +140,10 @@ function confirmAction(message) {
 
 async function fetchJson(url, options = {}) {
   const headers = options.headers || {};
-  if (session?.token) headers.Authorization = `Bearer ${session.token}`;
+  const hasAuthToken = Boolean(session?.token);
+  if (hasAuthToken) headers.Authorization = `Bearer ${session.token}`;
   const response = await fetch(url, { ...options, headers });
-  if (response.status === 401) {
+  if (response.status === 401 && hasAuthToken) {
     session = null;
     localStorage.removeItem(`barbearia_session_${tenantSlug}`);
     updateOwnerUI();
@@ -759,9 +760,6 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     updateOwnerUI();
     initScreenNavigation();
     await loadOwnerCityOptions();
-    if (session?.token && session?.user?.role === 'DONO_SISTEMA') {
-      await fetchJson('/api/owner/overview');
-    }
     await Promise.all([loadServices(), loadBarbers()]);
     if (session?.token && session.user.role === 'BARBEIRO') {
       authFeedback.textContent = `Sessão ativa: ${session.user.fullName} (${session.user.role}).`;
