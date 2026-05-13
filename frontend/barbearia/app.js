@@ -57,7 +57,14 @@ function isOwnerSession() {
 }
 
 function updateOwnerUI() {
-  document.body.classList.toggle('owner-authenticated', isOwnerSession());
+  const authenticated = isOwnerSession();
+  document.body.classList.toggle('owner-authenticated', authenticated);
+  // Fallback para evitar inconsistência por cache de CSS antigo.
+  document.querySelectorAll('#screen-dono .owner-private').forEach((el) => {
+    el.style.display = authenticated ? 'block' : 'none';
+  });
+  const ownerAreaEl = document.getElementById('ownerArea');
+  if (ownerAreaEl) ownerAreaEl.style.display = authenticated ? 'block' : 'none';
 }
 
 function setActiveScreen(screenName) {
