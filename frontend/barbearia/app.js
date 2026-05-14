@@ -136,6 +136,18 @@ function normalizeInstagram(value) {
   return raw.replace(/^@+/, '');
 }
 
+function buildAvailability(daysInput, startInput, endInput, slotInput) {
+  const days = String(daysInput || '')
+    .split(',')
+    .map((d) => Number(String(d).trim()))
+    .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+  const start = String(startInput || '').trim();
+  const end = String(endInput || '').trim();
+  const slotMinutes = Number(slotInput || 30);
+  if (!days.length || !start || !end || !slotMinutes) return null;
+  return { days: [...new Set(days)], start, end, slotMinutes };
+}
+
 function formatInstagram(value) {
   const normalized = normalizeInstagram(value);
   return normalized ? `@${normalized}` : '-';
@@ -334,7 +346,7 @@ async function loadBarbers() {
   }
 
   const adminBarbers = await fetchJson('/api/admin/barbers');
-  barbersAdminTable.innerHTML = `<table><thead><tr><th>Nome</th><th>Cidade</th><th>Telefone</th><th>WhatsApp</th><th>Instagram</th><th>Comissão %</th><th>Ações</th></tr></thead><tbody>${adminBarbers.map((b) => `<tr><td><input id="barber-name-${b.id}" value="${b.full_name}" /></td><td><input id="barber-city-${b.id}" value="${b.city || ''}" /></td><td><input id="barber-phone-${b.id}" value="${maskPhone(b.phone || '')}" /></td><td><input id="barber-whatsapp-${b.id}" value="${maskPhone(b.whatsapp || '')}" /></td><td><input id="barber-instagram-${b.id}" value="${b.instagram ? `@${String(b.instagram).replace(/^@+/, '')}` : ''}" /></td><td><input id="barber-comm-${b.id}" type="number" step="0.01" value="${b.commission_percent}" /></td><td><button class='ghost' onclick='saveBarber(${b.id})'>Salvar</button> <button class='ghost' onclick='removeBarber(${b.id})'>Remover</button></td></tr>`).join('')}</tbody></table>`;
+  barbersAdminTable.innerHTML = `<table><thead><tr><th>Nome</th><th>Cidade</th><th>Telefone</th><th>WhatsApp</th><th>Instagram</th><th>Dias</th><th>Início</th><th>Fim</th><th>Intervalo</th><th>Comissão %</th><th>Ações</th></tr></thead><tbody>${adminBarbers.map((b) => `<tr><td><input id="barber-name-${b.id}" value="${b.full_name}" /></td><td><input id="barber-city-${b.id}" value="${b.city || ''}" /></td><td><input id="barber-phone-${b.id}" value="${maskPhone(b.phone || '')}" /></td><td><input id="barber-whatsapp-${b.id}" value="${maskPhone(b.whatsapp || '')}" /></td><td><input id="barber-instagram-${b.id}" value="${b.instagram ? `@${String(b.instagram).replace(/^@+/, '')}` : ''}" /></td><td><input id="barber-days-${b.id}" value="${(b.availability?.days || []).join(',')}" placeholder="1,2,3,4,5" /></td><td><input id="barber-start-${b.id}" type="time" value="${b.availability?.start || '09:00'}" /></td><td><input id="barber-end-${b.id}" type="time" value="${b.availability?.end || '18:00'}" /></td><td><input id="barber-slot-${b.id}" type="number" min="5" max="120" value="${b.availability?.slotMinutes || 30}" /></td><td><input id="barber-comm-${b.id}" type="number" step="0.01" value="${b.commission_percent}" /></td><td><button class='ghost' onclick='saveBarber(${b.id})'>Salvar</button> <button class='ghost' onclick='removeBarber(${b.id})'>Remover</button></td></tr>`).join('')}</tbody></table>`;
 
   adminBarbers.forEach((b) => {
     const el = document.getElementById(`barber-phone-${b.id}`);
@@ -422,6 +434,12 @@ window.removeBarber = async (id) => {
         city: document.getElementById(`barber-city-${id}`).value.trim(),
         whatsapp: unmaskPhone(document.getElementById(`barber-whatsapp-${id}`).value),
         instagram: normalizeInstagram(document.getElementById(`barber-instagram-${id}`).value),
+        availability: buildAvailability(
+          document.getElementById(`barber-days-${id}`).value,
+          document.getElementById(`barber-start-${id}`).value,
+          document.getElementById(`barber-end-${id}`).value,
+          document.getElementById(`barber-slot-${id}`).value
+        ),
         password: 'temp123',
         commissionPercent: Number(document.getElementById(`barber-comm-${id}`).value),
       },
@@ -442,6 +460,12 @@ window.saveBarber = async (id) => {
         city: document.getElementById(`barber-city-${id}`).value.trim(),
         whatsapp: unmaskPhone(document.getElementById(`barber-whatsapp-${id}`).value),
         instagram: normalizeInstagram(document.getElementById(`barber-instagram-${id}`).value),
+        availability: buildAvailability(
+          document.getElementById(`barber-days-${id}`).value,
+          document.getElementById(`barber-start-${id}`).value,
+          document.getElementById(`barber-end-${id}`).value,
+          document.getElementById(`barber-slot-${id}`).value
+        ),
         commissionPercent: Number(document.getElementById(`barber-comm-${id}`).value),
       }),
     });
@@ -510,6 +534,12 @@ document.getElementById('addBarberBtn').addEventListener('click', async () => {
         city: document.getElementById('barberCity').value.trim(),
         whatsapp: unmaskPhone(document.getElementById('barberWhatsapp').value),
         instagram: normalizeInstagram(document.getElementById('barberInstagram').value),
+        availability: buildAvailability(
+          document.getElementById('barberWorkDays').value,
+          document.getElementById('barberWorkStart').value,
+          document.getElementById('barberWorkEnd').value,
+          document.getElementById('barberSlotMinutes').value
+        ),
         email: document.getElementById('barberEmail').value,
         password: document.getElementById('barberPass').value,
         commissionPercent: Number(document.getElementById('barberCommission').value),

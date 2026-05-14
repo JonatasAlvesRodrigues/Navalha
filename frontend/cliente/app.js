@@ -141,6 +141,7 @@ async function loadServices() {
         selectedServices.delete(id);
       }
       updateServiceSummary();
+      loadSlots().catch(() => null);
     });
   });
 
@@ -151,7 +152,9 @@ async function loadSlots() {
   const barberId = barberSelect.value;
   const date = dateInput.value;
   if (!barberId || !date) return;
-  const data = await fetchJson(`/api/appointments/available-slots?tenantSlug=${activeTenantSlug()}&barberId=${barberId}&date=${date}`);
+  const totalDuration = Array.from(selectedServices.values()).reduce((acc, item) => acc + Number(item.minutes || 0), 0);
+  const duration = totalDuration > 0 ? totalDuration : 30;
+  const data = await fetchJson(`/api/appointments/available-slots?tenantSlug=${activeTenantSlug()}&barberId=${barberId}&date=${date}&durationMinutes=${duration}`);
   slotSelect.innerHTML = data.slots.length
     ? data.slots.map((s) => `<option value="${s}">${s}</option>`).join('')
     : '<option value="">Sem horários</option>';

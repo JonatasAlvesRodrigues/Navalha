@@ -91,6 +91,7 @@ async function ensureOwnerTables() {
   await pool.query(`ALTER TABLE barbers ADD COLUMN IF NOT EXISTS whatsapp VARCHAR(30)`);
   await pool.query(`ALTER TABLE barbers ADD COLUMN IF NOT EXISTS instagram VARCHAR(120)`);
   await pool.query(`ALTER TABLE barbers ADD COLUMN IF NOT EXISTS city VARCHAR(120)`);
+  await pool.query(`ALTER TABLE barbers ADD COLUMN IF NOT EXISTS availability_json JSONB`);
 
   await pool.query(
     `CREATE TABLE IF NOT EXISTS platform_trials (
@@ -120,6 +121,24 @@ async function ensureOwnerTables() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`
   );
+}
+
+function normalizeAvailability(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const daysRaw = Array.isArray(raw.days) ? raw.days : [];
+  const days = [...new Set(daysRaw.map((d) => Number(d)).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort((a, b) => a - b);
+  if (!days.length) return null;
+
+  const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+  const start = String(raw.start || '').trim();
+  const end = String(raw.end || '').trim();
+  if (!timeRegex.test(start) || !timeRegex.test(end)) return null;
+  if (start >= end) return null;
+
+  const slot = Number(raw.slotMinutes ?? 30);
+  if (!Number.isInteger(slot) || slot < 5 || slot > 120) return null;
+
+  return { days, start, end, slotMinutes: slot };
 }
 
 app.get('/api/public/barbershops', async (req, res) => {
@@ -609,7 +628,7 @@ app.get('/api/barbers', async (req, res) => {
   if (!tenant) return res.status(400).json({ error: 'tenantSlug inválido.' });
 
   const { rows } = await pool.query(
-    `SELECT u.id, u.full_name, u.phone, b.commission_percent, b.specialty, b.photo_url, b.whatsapp, b.instagram, COALESCE(b.city, bs.city) AS city
+    `SELECT u.id, u.full_name, u.phone, b.commission_percent, b.specialty, b.photo_url, b.whatsapp, b.instagram, COALESCE(b.city, bs.city) AS city, b.availability_json AS availability
      FROM barbers b
      JOIN users u ON u.id = b.user_id
      JOIN barbershops bs ON bs.id = u.barbershop_id
@@ -661,6 +680,7 @@ app.get('/api/gallery/:clientId', authRequired, async (req, res) => {
 app.get('/api/appointments/available-slots', async (req, res) => {
   const barberId = Number(req.query.barberId);
   const date = req.query.date;
+  const durationMinutes = Number(req.query.durationMinutes || 0);
   const tenantSlug = tenantSlugFromReq(req);
   const tenant = await resolveTenantIdBySlug(tenantSlug);
 
@@ -668,32 +688,56 @@ app.get('/api/appointments/available-slots', async (req, res) => {
     return res.status(400).json({ error: 'Parâmetros obrigatórios: tenantSlug, barberId e date (YYYY-MM-DD).' });
   }
 
-  const { rows: existing } = await pool.query(
-    `SELECT scheduled_start, scheduled_end
-     FROM appointments
-     WHERE barber_id = $1
-       AND barbershop_id = $2
-       AND status <> 'CANCELADO'
-       AND DATE(scheduled_start) = $3::date`,
-    [barberId, tenant.id, date]
-  );
+  const [{ rows: existing }, { rows: barberRows }] = await Promise.all([
+    pool.query(
+      `SELECT scheduled_start, scheduled_end
+       FROM appointments
+       WHERE barber_id = $1
+         AND barbershop_id = $2
+         AND status <> 'CANCELADO'
+         AND DATE(scheduled_start) = $3::date`,
+      [barberId, tenant.id, date]
+    ),
+    pool.query(
+      `SELECT availability_json
+       FROM barbers
+       WHERE user_id = $1`,
+      [barberId]
+    ),
+  ]);
 
-  const slotMinutes = 30;
-  const startHour = 9;
-  const endHour = 20;
+  const availability = normalizeAvailability(barberRows[0]?.availability_json || null);
+  const dayOfWeek = new Date(`${date}T00:00:00`).getDay();
+  const slotMinutes = availability?.slotMinutes || 30;
+  const bookingDurationMinutes = Number.isFinite(durationMinutes) && durationMinutes > 0 ? durationMinutes : slotMinutes;
   const slots = [];
-
-  for (let hour = startHour; hour < endHour; hour += 1) {
-    for (let minute = 0; minute < 60; minute += slotMinutes) {
-      const slotStart = new Date(`${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`);
-      const slotEnd = new Date(slotStart.getTime() + slotMinutes * 60 * 1000);
-      const overlaps = existing.some((item) => {
-        const apptStart = new Date(item.scheduled_start);
-        const apptEnd = new Date(item.scheduled_end);
-        return slotStart < apptEnd && slotEnd > apptStart;
-      });
-      if (!overlaps) slots.push(slotStart.toTimeString().slice(0, 5));
+  let workStart = '09:00';
+  let workEnd = '20:00';
+  if (availability) {
+    if (!availability.days.includes(dayOfWeek)) {
+      return res.json({ barberId, date, slots: [] });
     }
+    workStart = availability.start;
+    workEnd = availability.end;
+  }
+
+  const [startHour, startMinute] = workStart.split(':').map(Number);
+  const [endHour, endMinute] = workEnd.split(':').map(Number);
+  const windowStart = new Date(`${date}T${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}:00`);
+  const windowEnd = new Date(`${date}T${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}:00`);
+  const now = new Date();
+
+  for (let cursor = new Date(windowStart); cursor < windowEnd; cursor = new Date(cursor.getTime() + slotMinutes * 60 * 1000)) {
+    const slotStart = new Date(cursor);
+    const slotEnd = new Date(slotStart.getTime() + bookingDurationMinutes * 60 * 1000);
+    if (slotEnd > windowEnd) break;
+    if (slotStart <= now) continue;
+    const overlaps = existing.some((item) => {
+      const apptStart = new Date(item.scheduled_start);
+      const apptEnd = new Date(item.scheduled_end);
+      return slotStart < apptEnd && slotEnd > apptStart;
+    });
+    if (!overlaps) slots.push(slotStart.toTimeString().slice(0, 5));
   }
 
   res.json({ barberId, date, slots });
@@ -725,6 +769,21 @@ app.post('/api/appointments', authRequired, async (req, res) => {
   const start = new Date(scheduledStart);
   if (Number.isNaN(start.getTime())) return res.status(400).json({ error: 'scheduledStart inválido.' });
   const end = new Date(start.getTime() + totalMinutes * 60 * 1000);
+
+  const conflict = await pool.query(
+    `SELECT 1
+     FROM appointments
+     WHERE barber_id = $1
+       AND barbershop_id = $2
+       AND status <> 'CANCELADO'
+       AND scheduled_start < $4
+       AND scheduled_end > $3
+     LIMIT 1`,
+    [barberId, tenantId, start.toISOString(), end.toISOString()]
+  );
+  if (conflict.rowCount) {
+    return res.status(409).json({ error: 'Conflito de agenda: barbeiro indisponível nesse horário.' });
+  }
 
   const clientConn = await pool.connect();
   try {
@@ -845,7 +904,7 @@ app.delete('/api/admin/services/:id', authRequired, barberOnly, async (req, res)
 
 app.get('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT u.id, u.full_name, u.phone, u.email, b.commission_percent, b.specialty, b.whatsapp, b.instagram, b.city
+    `SELECT u.id, u.full_name, u.phone, u.email, b.commission_percent, b.specialty, b.whatsapp, b.instagram, b.city, b.availability_json AS availability
      FROM barbers b
      JOIN users u ON u.id = b.user_id
      WHERE u.barbershop_id = $1 AND u.is_active = true
@@ -856,7 +915,7 @@ app.get('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
 });
 
 app.post('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
-  const { fullName, phone, email, password, commissionPercent, specialty, whatsapp, instagram, city } = req.body;
+  const { fullName, phone, email, password, commissionPercent, specialty, whatsapp, instagram, city, availability } = req.body;
   const commission = Number(commissionPercent);
   if (!fullName || !phone || !password || commissionPercent == null) {
     return res.status(400).json({ error: 'fullName, phone, password e commissionPercent são obrigatórios.' });
@@ -883,14 +942,14 @@ app.post('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
     const user = userInsert.rows[0];
 
     await conn.query(
-      `INSERT INTO barbers (user_id, commission_percent, specialty, whatsapp, instagram, city)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [user.id, commission, specialty || null, normalizedWhatsapp, instagram || null, city || null]
+      `INSERT INTO barbers (user_id, commission_percent, specialty, whatsapp, instagram, city, availability_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [user.id, commission, specialty || null, normalizedWhatsapp, instagram || null, city || null, normalizedAvailability]
     );
 
     await rebalanceBarberCommissions(conn, req.user.tenantId, user.id, commission);
     await conn.query('COMMIT');
-    res.status(201).json({ ...user, commission_percent: commission, specialty: specialty || null, whatsapp: whatsapp || null, instagram: instagram || null, city: city || null });
+    res.status(201).json({ ...user, commission_percent: commission, specialty: specialty || null, whatsapp: whatsapp || null, instagram: instagram || null, city: city || null, availability: normalizedAvailability });
   } catch (error) {
     await conn.query('ROLLBACK');
     res.status(400).json({ error: error.message });
@@ -901,7 +960,7 @@ app.post('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
 
 app.patch('/api/admin/barbers/:id', authRequired, barberOnly, async (req, res) => {
   const id = Number(req.params.id);
-  const { fullName, phone, email, commissionPercent, specialty, isActive, whatsapp, instagram, city } = req.body;
+  const { fullName, phone, email, commissionPercent, specialty, isActive, whatsapp, instagram, city, availability } = req.body;
   const normalizedPhone = phone != null ? normalizePhone(phone) : null;
   const normalizedWhatsapp = whatsapp != null ? normalizePhone(whatsapp) : null;
   const normalizedEmail = email != null ? normalizeEmail(email) : null;
@@ -932,10 +991,11 @@ app.patch('/api/admin/barbers/:id', authRequired, barberOnly, async (req, res) =
            specialty = COALESCE($2, specialty),
            whatsapp = COALESCE($3, whatsapp),
            instagram = COALESCE($4, instagram),
-           city = COALESCE($5, city)
-       WHERE user_id = $6
-       RETURNING commission_percent, specialty, whatsapp, instagram, city`,
-      [commissionPercent ?? null, specialty ?? null, normalizedWhatsapp, instagram ?? null, city ?? null, id]
+           city = COALESCE($5, city),
+           availability_json = COALESCE($6, availability_json)
+       WHERE user_id = $7
+       RETURNING commission_percent, specialty, whatsapp, instagram, city, availability_json AS availability`,
+      [commissionPercent ?? null, specialty ?? null, normalizedWhatsapp, instagram ?? null, city ?? null, normalizedAvailability, id]
     );
 
     if (commissionPercent != null) {
@@ -1597,3 +1657,5 @@ app.listen(port, () => {
     console.log('[REMINDER CRON] disabled by REMINDER_CRON_ENABLED=false');
   }
 });
+  const normalizedAvailability = normalizeAvailability(availability);
+  const normalizedAvailability = availability === null ? null : normalizeAvailability(availability);
