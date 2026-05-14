@@ -183,6 +183,9 @@ async function login(email, password) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tenantSlug, email, password }),
   });
+  if (data?.user?.role !== 'BARBEIRO') {
+    throw new Error('Este acesso é exclusivo para barbeiros.');
+  }
   session = data;
   localStorage.setItem(`barbearia_session_${tenantSlug}`, JSON.stringify(data));
   authFeedback.textContent = `Conectado como ${data.user.fullName} (${data.user.role}).`;
@@ -581,6 +584,8 @@ document.getElementById('loginForm').addEventListener('submit', async (event) =>
     await Promise.all([loadBarbers(), loadServices()]);
     if (session?.user?.role === 'BARBEIRO') {
       await Promise.all([loadDashboard(), loadAdminAppointments(), loadProducts()]);
+      setActiveScreen('dashboard');
+      window.location.hash = 'dashboard';
     }
     if (isOwnerSession()) {
       await Promise.all([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
@@ -801,6 +806,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     if (session?.token && session.user.role === 'BARBEIRO') {
       authFeedback.textContent = `Sessão ativa: ${session.user.fullName} (${session.user.role}).`;
       await Promise.all([loadDashboard(), loadAdminAppointments(), loadProducts()]);
+      setActiveScreen('dashboard');
     }
     if (isOwnerSession()) {
       ownerAuthFeedback.textContent = `Sessão ativa: ${session.user.fullName}.`;
