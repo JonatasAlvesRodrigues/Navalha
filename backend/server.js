@@ -927,6 +927,7 @@ app.post('/api/admin/barbers', authRequired, barberOnly, async (req, res) => {
   const normalizedPhone = normalizePhone(phone);
   const normalizedWhatsapp = whatsapp ? normalizePhone(whatsapp) : null;
   const normalizedEmail = email ? normalizeEmail(email) : null;
+  const normalizedAvailability = normalizeAvailability(availability);
   if (normalizedPhone.length < 10) return res.status(400).json({ error: 'Telefone inválido (mínimo de 10 dígitos).' });
 
   const hash = await bcrypt.hash(password, 10);
@@ -964,6 +965,7 @@ app.patch('/api/admin/barbers/:id', authRequired, barberOnly, async (req, res) =
   const normalizedPhone = phone != null ? normalizePhone(phone) : null;
   const normalizedWhatsapp = whatsapp != null ? normalizePhone(whatsapp) : null;
   const normalizedEmail = email != null ? normalizeEmail(email) : null;
+  const normalizedAvailability = availability === null ? null : normalizeAvailability(availability);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'ID inválido.' });
   if (commissionPercent != null) {
     const commission = Number(commissionPercent);
@@ -1657,5 +1659,3 @@ app.listen(port, () => {
     console.log('[REMINDER CRON] disabled by REMINDER_CRON_ENABLED=false');
   }
 });
-  const normalizedAvailability = normalizeAvailability(availability);
-  const normalizedAvailability = availability === null ? null : normalizeAvailability(availability);
