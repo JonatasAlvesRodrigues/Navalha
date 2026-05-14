@@ -581,11 +581,15 @@ document.getElementById('loginForm').addEventListener('submit', async (event) =>
   event.preventDefault();
   try {
     await login(document.getElementById('loginEmail').value, document.getElementById('loginPassword').value);
-    await Promise.all([loadBarbers(), loadServices()]);
     if (session?.user?.role === 'BARBEIRO') {
-      await Promise.all([loadDashboard(), loadAdminAppointments(), loadProducts()]);
       setActiveScreen('dashboard');
       window.location.hash = 'dashboard';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      const results = await Promise.allSettled([loadBarbers(), loadServices(), loadDashboard(), loadAdminAppointments(), loadProducts()]);
+      const failed = results.find((r) => r.status === 'rejected');
+      if (failed) {
+        authFeedback.textContent = `Conectado como ${session.user.fullName} (${session.user.role}), mas houve falha parcial: ${failed.reason?.message || 'erro desconhecido'}.`;
+      }
     }
     if (isOwnerSession()) {
       await Promise.all([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
@@ -805,8 +809,13 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     await Promise.all([loadServices(), loadBarbers()]);
     if (session?.token && session.user.role === 'BARBEIRO') {
       authFeedback.textContent = `Sessão ativa: ${session.user.fullName} (${session.user.role}).`;
-      await Promise.all([loadDashboard(), loadAdminAppointments(), loadProducts()]);
       setActiveScreen('dashboard');
+      window.location.hash = 'dashboard';
+      const results = await Promise.allSettled([loadServices(), loadBarbers(), loadDashboard(), loadAdminAppointments(), loadProducts()]);
+      const failed = results.find((r) => r.status === 'rejected');
+      if (failed) {
+        authFeedback.textContent = `Sessão ativa com falha parcial: ${failed.reason?.message || 'erro desconhecido'}.`;
+      }
     }
     if (isOwnerSession()) {
       ownerAuthFeedback.textContent = `Sessão ativa: ${session.user.fullName}.`;
