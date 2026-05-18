@@ -71,6 +71,8 @@ const calendarFeedback = document.getElementById('calendarFeedback');
 let session = JSON.parse(localStorage.getItem(`barbearia_session_${tenantSlug}`) || 'null');
 let lastRemoved = null;
 let ownerRowsCache = [];
+let draggedAppointmentId = null;
+let draggedAppointmentTime = null;
 
 
 function isOwnerSession() {
@@ -436,14 +438,52 @@ async function loadVisualCalendar() {
   const byDay = groupCalendarByDay(merged);
   const days = Object.keys(byDay).sort();
   calendarBoard.innerHTML = days.length ? days.map((day) => `
-    <article class="calendar-day">
+    <article class="calendar-day" data-day="${day}">
       <h4>${new Date(`${day}T00:00:00`).toLocaleDateString('pt-BR')}</h4>
       ${byDay[day].map((item) => item.__type === 'block'
         ? `<div class="calendar-item block"><strong>BLOQUEIO</strong><br>${new Date(item.starts_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} - ${new Date(item.ends_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}<br>${item.reason || 'Sem motivo'}</div>`
-        : `<div class="calendar-item"><strong>${item.client_name}</strong><br>${new Date(item.scheduled_start).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} - ${new Date(item.scheduled_end).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}<br>${item.barber_name} • ${item.status}</div>`
+        : `<div class="calendar-item appt" draggable="true" data-id="${item.id}" data-start="${item.scheduled_start}"><strong>${item.client_name}</strong><br>${new Date(item.scheduled_start).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} - ${new Date(item.scheduled_end).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}<br>${item.barber_name} • ${item.status}</div>`
       ).join('')}
     </article>
   `).join('') : '<p>Sem registros no período.</p>';
+
+  document.querySelectorAll('.calendar-item.appt').forEach((el) => {
+    el.addEventListener('dragstart', (event) => {
+      draggedAppointmentId = Number(event.currentTarget.dataset.id);
+      draggedAppointmentTime = new Date(event.currentTarget.dataset.start).toTimeString().slice(0, 5);
+      event.dataTransfer.effectAllowed = 'move';
+    });
+    el.addEventListener('dragend', () => {
+      draggedAppointmentId = null;
+      draggedAppointmentTime = null;
+    });
+  });
+
+  document.querySelectorAll('.calendar-day').forEach((dayEl) => {
+    dayEl.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      dayEl.classList.add('drop-over');
+    });
+    dayEl.addEventListener('dragleave', () => dayEl.classList.remove('drop-over'));
+    dayEl.addEventListener('drop', async (event) => {
+      event.preventDefault();
+      dayEl.classList.remove('drop-over');
+      if (!draggedAppointmentId) return;
+      const day = dayEl.dataset.day;
+      const hour = draggedAppointmentTime || '09:00';
+      try {
+        await fetchJson(`/api/admin/appointments/${draggedAppointmentId}/reschedule`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scheduledStart: new Date(`${day}T${hour}:00`).toISOString() }),
+        });
+        calendarFeedback.textContent = `Agendamento ${draggedAppointmentId} remarcado para ${day} ${hour}.`;
+        await Promise.all([loadVisualCalendar(), loadAdminAppointments()]);
+      } catch (error) {
+        calendarFeedback.textContent = error.message;
+      }
+    });
+  });
 
   calendarBlocksTable.innerHTML = renderSimpleTable(
     (data.blocks || []).map((b) => ({

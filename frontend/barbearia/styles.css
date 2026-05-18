@@ -502,6 +502,11 @@ textarea:focus {
   background: rgba(255, 255, 255, 0.02);
 }
 
+.calendar-day.drop-over {
+  border-color: rgba(123, 92, 255, 0.75);
+  box-shadow: 0 0 0 3px rgba(123, 92, 255, 0.18) inset;
+}
+
 .calendar-day h4 {
   margin: 0 0 8px;
   font-family: 'Oswald', sans-serif;
@@ -514,6 +519,14 @@ textarea:focus {
   padding: 8px;
   margin-bottom: 6px;
   font-size: 0.86rem;
+}
+
+.calendar-item.appt {
+  cursor: grab;
+}
+
+.calendar-item.appt:active {
+  cursor: grabbing;
 }
 
 .calendar-item.block {
