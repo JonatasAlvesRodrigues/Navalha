@@ -1,32 +1,41 @@
 .client-wrap {
-  max-width: 760px;
+  max-width: 980px;
   margin: 0 auto;
   padding-bottom: calc(104px + env(safe-area-inset-bottom));
 }
 
-.client-hero {
-  padding: 24px 0 12px;
+.client-topbar {
+  margin-top: 16px;
+  animation: rise-in .5s cubic-bezier(.2,.8,.2,1) both;
 }
 
-.client-hero h1 {
-  margin: 10px 0 0;
-  font-size: clamp(2.2rem, 5.8vw, 4rem);
+.client-topbar h1 {
+  margin: 8px 0 4px;
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  line-height: 1.02;
 }
 
-.client-hero > p {
-  margin-top: 8px;
+.client-topbar > div > p {
+  margin: 0;
   color: var(--muted);
 }
 
 .client-grid {
   display: grid;
   gap: 10px;
+  grid-template-columns: 1fr 1fr;
 }
 
 .client-grid label {
   display: grid;
   gap: 6px;
   font-weight: 700;
+}
+
+.client-grid > button,
+.client-grid > p,
+.client-grid > div {
+  grid-column: 1 / -1;
 }
 
 .client-grid input,
@@ -104,6 +113,12 @@
   border-radius: 12px;
   padding: 12px;
   background: linear-gradient(130deg, rgba(123, 92, 255, 0.12), rgba(34, 211, 238, 0.06));
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+
+.kpi:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(34, 20, 90, 0.28);
 }
 
 .kpi strong {
@@ -138,6 +153,7 @@
   display: grid;
   gap: 8px;
   margin-top: 10px;
+  grid-template-columns: 1fr 1fr;
 }
 
 .appointment-item {
@@ -145,6 +161,12 @@
   border-radius: 12px;
   padding: 10px;
   background: linear-gradient(140deg, rgba(123, 92, 255, 0.12), rgba(34, 211, 238, 0.05));
+  transition: transform .2s ease, border-color .2s ease;
+}
+
+.appointment-item:hover {
+  transform: translateY(-2px);
+  border-color: rgba(123, 92, 255, .42);
 }
 
 .appointment-top {
@@ -172,6 +194,11 @@
   font-size: 1.4rem;
   text-transform: uppercase;
   letter-spacing: 0.4px;
+}
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .badge {
@@ -244,10 +271,6 @@
     width: min(100%, 96vw);
   }
 
-  .client-hero {
-    padding: 16px 0 6px;
-  }
-
   .quick-row {
     grid-template-columns: 1fr;
   }
@@ -260,9 +283,9 @@
     grid-template-columns: 1fr;
   }
 
-  .client-hero h1 {
-    line-height: 1;
-    font-size: clamp(1.9rem, 10vw, 2.7rem);
+  .client-grid,
+  .appointments-list {
+    grid-template-columns: 1fr;
   }
 
   .panel {

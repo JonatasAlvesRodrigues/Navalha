@@ -18,13 +18,17 @@
     <button id="installAppBtn" class="ghost pwa-install-btn" type="button" hidden>Instalar App</button>
     <p id="installAppTip" class="pwa-install-tip" hidden></p>
   </div>
+
   <div class="bg-overlay"></div>
+
   <main class="container client-wrap">
-    <section class="client-hero">
-      <p class="eyebrow">Navalha Cliente</p>
-      <h1>Agende em menos de 1 minuto.</h1>
-      <p>Escolha a barbearia da sua cidade e entre com email e senha.</p>
-    </section>
+    <header class="client-topbar panel">
+      <div>
+        <p class="eyebrow">NAVALHA CLIENTE</p>
+        <h1>Seus cortes, sua agenda, tudo no controle.</h1>
+        <p>Agende, acompanhe histórico e gerencie seus horários em uma experiência de painel premium.</p>
+      </div>
+    </header>
 
     <section class="panel" id="authCard">
       <h2>Acesso</h2>
@@ -69,22 +73,22 @@
 
     <section class="panel" id="bookingCard" style="display:none;">
       <div class="quick-row">
-        <h2>Seu Agendamento</h2>
+        <h2>Seu Painel</h2>
         <button id="logoutBtn" class="ghost" type="button">Sair</button>
       </div>
       <p id="clientProfile" class="profile-line"></p>
 
       <div class="kpi-grid" id="section-overview">
         <article class="kpi">
-          <span class="subtle">Total</span>
+          <span class="subtle">◉ Total</span>
           <strong id="kpiTotal">0</strong>
         </article>
         <article class="kpi">
-          <span class="subtle">Concluídos</span>
+          <span class="subtle">✦ Concluídos</span>
           <strong id="kpiDone">0</strong>
         </article>
         <article class="kpi">
-          <span class="subtle">Cancelados</span>
+          <span class="subtle">◌ Cancelados</span>
           <strong id="kpiCanceled">0</strong>
         </article>
       </div>
@@ -125,16 +129,16 @@
       <div id="appointmentsList" class="appointments-list"></div>
     </section>
   </main>
+
   <nav id="mobileQuickNav" class="mobile-quick-nav" hidden>
     <button type="button" class="mobile-quick-btn active" data-target="section-new-booking">Novo</button>
     <button type="button" class="mobile-quick-btn" data-target="nextAppointment">Próximo</button>
     <button type="button" class="mobile-quick-btn" data-target="section-history-title">Histórico</button>
     <button type="button" class="mobile-quick-btn" data-action="install">Instalar</button>
   </nav>
+
   <script src="/cliente/app.js"></script>
   <script src="/pwa-register.js"></script>
 </body>
 </html>
-
-
 
