@@ -536,7 +536,7 @@ th { text-transform: uppercase; color: #c8bcff; font-size: 0.85rem; letter-spaci
   }
 }
 
-@media (max-width: 680px) {
+@media (max-width: 520px) {
   .app-shell { grid-template-columns: 1fr; }
   .side-rail { position: static; }
 
@@ -579,6 +579,15 @@ th { text-transform: uppercase; color: #c8bcff; font-size: 0.85rem; letter-spaci
 
   .pwa-install-btn { width: 100%; }
   .pwa-install-tip { max-width: none; }
+}
+
+.side-rail::-webkit-scrollbar {
+  width: 8px;
+}
+
+.side-rail::-webkit-scrollbar-thumb {
+  background: rgba(123, 92, 255, 0.4);
+  border-radius: 999px;
 }
 
 @media (prefers-reduced-motion: reduce) {
