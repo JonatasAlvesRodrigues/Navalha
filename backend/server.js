@@ -1460,6 +1460,69 @@ app.patch('/api/admin/appointments/:id/reschedule', authRequired, barberOnly, as
   return res.json(rows[0]);
 });
 
+app.patch('/api/admin/appointments/:id/resize', authRequired, barberOnly, async (req, res) => {
+  const appointmentId = Number(req.params.id);
+  const durationMinutes = Number(req.body?.durationMinutes);
+  if (!Number.isInteger(appointmentId) || appointmentId <= 0) return res.status(400).json({ error: 'ID inválido.' });
+  if (!Number.isFinite(durationMinutes) || durationMinutes < 15 || durationMinutes > 360) {
+    return res.status(400).json({ error: 'durationMinutes deve estar entre 15 e 360.' });
+  }
+
+  const tenantId = req.user.tenantId;
+  const { rows: currentRows } = await pool.query(
+    `SELECT id, barber_id, scheduled_start, scheduled_end, status
+     FROM appointments
+     WHERE id = $1 AND barbershop_id = $2`,
+    [appointmentId, tenantId]
+  );
+  if (!currentRows.length) return res.status(404).json({ error: 'Agendamento não encontrado.' });
+  const current = currentRows[0];
+  if (current.status === 'CANCELADO') return res.status(400).json({ error: 'Não é possível redimensionar agendamento cancelado.' });
+
+  const start = new Date(current.scheduled_start);
+  const nextEnd = new Date(start.getTime() + durationMinutes * 60 * 1000);
+
+  const [{ rows: conflicts }, { rows: blocks }] = await Promise.all([
+    pool.query(
+      `SELECT 1
+       FROM appointments
+       WHERE barber_id = $1
+         AND barbershop_id = $2
+         AND id <> $3
+         AND status <> 'CANCELADO'
+         AND scheduled_start < $5
+         AND scheduled_end > $4
+       LIMIT 1`,
+      [current.barber_id, tenantId, appointmentId, start.toISOString(), nextEnd.toISOString()]
+    ),
+    pool.query(
+      `SELECT 1
+       FROM schedule_blocks
+       WHERE barbershop_id = $1
+         AND (barber_id IS NULL OR barber_id = $2)
+         AND starts_at < $4
+         AND ends_at > $3
+       LIMIT 1`,
+      [tenantId, current.barber_id, start.toISOString(), nextEnd.toISOString()]
+    ),
+  ]);
+
+  if (conflicts.length || blocks.length) {
+    return res.status(409).json({ error: 'Conflito na agenda para a nova duração.' });
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE appointments
+     SET scheduled_end = $1,
+         updated_at = NOW()
+     WHERE id = $2
+       AND barbershop_id = $3
+     RETURNING id, scheduled_start, scheduled_end`,
+    [nextEnd.toISOString(), appointmentId, tenantId]
+  );
+  return res.json(rows[0]);
+});
+
 app.post('/api/admin/clients/:clientId/reminder-check', authRequired, barberOnly, async (req, res) => {
   const clientId = Number(req.params.clientId);
   const thresholdDaysBefore = Number(req.body?.thresholdDaysBefore ?? 2);

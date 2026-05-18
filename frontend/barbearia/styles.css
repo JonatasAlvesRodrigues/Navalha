@@ -529,6 +529,43 @@ textarea:focus {
   cursor: grabbing;
 }
 
+.appt-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.appt-actions .ghost {
+  padding: 4px 8px;
+  min-height: 0;
+  font-size: 0.75rem;
+}
+
+.slot-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.slot-target {
+  border: 1px dashed var(--line-soft);
+  background: rgba(255, 255, 255, 0.015);
+  color: var(--muted);
+  border-radius: 8px;
+  font-size: 0.72rem;
+  padding: 4px;
+  min-height: 28px;
+  cursor: pointer;
+}
+
+.slot-target.drop-over {
+  border-style: solid;
+  border-color: rgba(123, 92, 255, 0.8);
+  background: rgba(123, 92, 255, 0.16);
+  color: #f2efff;
+}
+
 .calendar-item.block {
   border-color: rgba(255, 127, 159, 0.5);
   background: rgba(255, 127, 159, 0.08);
