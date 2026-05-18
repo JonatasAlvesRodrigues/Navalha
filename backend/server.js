@@ -121,6 +121,29 @@ async function ensureOwnerTables() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`
   );
+
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS onboarding_profiles (
+      barbershop_id BIGINT PRIMARY KEY,
+      setup_step VARCHAR(40) NOT NULL DEFAULT 'BASICO',
+      checklist_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      completed_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`
+  );
+
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS schedule_blocks (
+      id BIGSERIAL PRIMARY KEY,
+      barbershop_id BIGINT NOT NULL,
+      barber_id BIGINT,
+      starts_at TIMESTAMPTZ NOT NULL,
+      ends_at TIMESTAMPTZ NOT NULL,
+      reason TEXT,
+      created_by BIGINT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`
+  );
 }
 
 function normalizeAvailability(raw) {
@@ -688,7 +711,7 @@ app.get('/api/appointments/available-slots', async (req, res) => {
     return res.status(400).json({ error: 'Parâmetros obrigatórios: tenantSlug, barberId e date (YYYY-MM-DD).' });
   }
 
-  const [{ rows: existing }, { rows: barberRows }] = await Promise.all([
+  const [{ rows: existing }, { rows: barberRows }, { rows: blocks }] = await Promise.all([
     pool.query(
       `SELECT scheduled_start, scheduled_end
        FROM appointments
@@ -703,6 +726,15 @@ app.get('/api/appointments/available-slots', async (req, res) => {
        FROM barbers
        WHERE user_id = $1`,
       [barberId]
+    ),
+    pool.query(
+      `SELECT starts_at, ends_at
+       FROM schedule_blocks
+       WHERE barbershop_id = $1
+         AND (barber_id IS NULL OR barber_id = $2)
+         AND DATE(starts_at) <= $3::date
+         AND DATE(ends_at) >= $3::date`,
+      [tenant.id, barberId, date]
     ),
   ]);
 
@@ -736,6 +768,10 @@ app.get('/api/appointments/available-slots', async (req, res) => {
       const apptStart = new Date(item.scheduled_start);
       const apptEnd = new Date(item.scheduled_end);
       return slotStart < apptEnd && slotEnd > apptStart;
+    }) || blocks.some((item) => {
+      const blockStart = new Date(item.starts_at);
+      const blockEnd = new Date(item.ends_at);
+      return slotStart < blockEnd && slotEnd > blockStart;
     });
     if (!overlaps) slots.push(slotStart.toTimeString().slice(0, 5));
   }
@@ -829,6 +865,263 @@ app.get('/api/dashboard/summary', authRequired, barberOnly, async (req, res) => 
     [req.user.tenantId]
   );
   res.json(rows[0]);
+});
+
+app.get('/api/dashboard/advanced', authRequired, barberOnly, async (req, res) => {
+  const tenantId = req.user.tenantId;
+  const [{ rows: funnelRows }, { rows: retentionRows }, { rows: ticketRows }, { rows: cohortRows }] = await Promise.all([
+    pool.query(
+      `SELECT
+         COUNT(*)::int AS leads,
+         COUNT(*) FILTER (WHERE status IN ('PENDENTE', 'PAGO', 'CONCLUIDO'))::int AS agendados,
+         COUNT(*) FILTER (WHERE status = 'CONCLUIDO')::int AS concluidos,
+         COUNT(*) FILTER (WHERE status = 'CANCELADO')::int AS cancelados
+       FROM appointments
+       WHERE barbershop_id = $1
+         AND scheduled_start >= NOW() - INTERVAL '90 days'`,
+      [tenantId]
+    ),
+    pool.query(
+      `WITH client_totals AS (
+         SELECT client_id, COUNT(*)::int AS total
+         FROM appointments
+         WHERE barbershop_id = $1
+           AND status = 'CONCLUIDO'
+         GROUP BY client_id
+       )
+       SELECT
+         COUNT(*)::int AS clientes_ativos,
+         COUNT(*) FILTER (WHERE total >= 2)::int AS clientes_recorrentes
+       FROM client_totals`,
+      [tenantId]
+    ),
+    pool.query(
+      `SELECT
+         s.name,
+         COUNT(*)::int AS total_usos,
+         COALESCE(AVG(aps.unit_price), 0)::numeric(10,2) AS ticket_medio
+       FROM appointment_services aps
+       JOIN appointments a ON a.id = aps.appointment_id
+       JOIN services s ON s.id = aps.service_id
+       WHERE a.barbershop_id = $1
+         AND a.status = 'CONCLUIDO'
+         AND a.scheduled_start >= NOW() - INTERVAL '90 days'
+       GROUP BY s.name
+       ORDER BY total_usos DESC, ticket_medio DESC
+       LIMIT 8`,
+      [tenantId]
+    ),
+    pool.query(
+      `WITH first_month AS (
+         SELECT
+           client_id,
+           DATE_TRUNC('month', MIN(scheduled_start)) AS cohort_month
+         FROM appointments
+         WHERE barbershop_id = $1
+         GROUP BY client_id
+       ),
+       monthly_usage AS (
+         SELECT
+           a.client_id,
+           DATE_TRUNC('month', a.scheduled_start) AS usage_month
+         FROM appointments a
+         WHERE a.barbershop_id = $1
+           AND a.status = 'CONCLUIDO'
+         GROUP BY a.client_id, DATE_TRUNC('month', a.scheduled_start)
+       )
+       SELECT
+         TO_CHAR(f.cohort_month, 'YYYY-MM') AS cohort,
+         TO_CHAR(m.usage_month, 'YYYY-MM') AS mes_uso,
+         COUNT(*)::int AS clientes
+       FROM first_month f
+       JOIN monthly_usage m ON m.client_id = f.client_id
+       GROUP BY f.cohort_month, m.usage_month
+       ORDER BY f.cohort_month DESC, m.usage_month ASC
+       LIMIT 60`,
+      [tenantId]
+    ),
+  ]);
+
+  const ativos = Number(retentionRows[0]?.clientes_ativos || 0);
+  const recorrentes = Number(retentionRows[0]?.clientes_recorrentes || 0);
+  const retentionRate = ativos ? Number(((recorrentes / ativos) * 100).toFixed(2)) : 0;
+
+  return res.json({
+    funnel: funnelRows[0] || { leads: 0, agendados: 0, concluidos: 0, cancelados: 0 },
+    retention: {
+      clientes_ativos: ativos,
+      clientes_recorrentes: recorrentes,
+      taxa_recorrencia: retentionRate,
+    },
+    ticketByService: ticketRows,
+    cohorts: cohortRows,
+  });
+});
+
+app.get('/api/admin/onboarding', authRequired, barberOnly, async (req, res) => {
+  const tenantId = req.user.tenantId;
+  const [{ rows: profileRows }, { rows: countsRows }] = await Promise.all([
+    pool.query(
+      `SELECT setup_step, checklist_json, completed_at
+       FROM onboarding_profiles
+       WHERE barbershop_id = $1`,
+      [tenantId]
+    ),
+    pool.query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM services WHERE barbershop_id = $1 AND is_active = true) AS services_count,
+         (SELECT COUNT(*)::int FROM users WHERE barbershop_id = $1 AND role = 'BARBEIRO' AND is_active = true) AS barbers_count,
+         (SELECT COUNT(*)::int FROM products WHERE barbershop_id = $1) AS products_count`,
+      [tenantId]
+    ),
+  ]);
+
+  const profile = profileRows[0] || { setup_step: 'BASICO', checklist_json: {}, completed_at: null };
+  const counts = countsRows[0] || { services_count: 0, barbers_count: 0, products_count: 0 };
+  return res.json({ profile, counts });
+});
+
+app.post('/api/admin/onboarding', authRequired, barberOnly, async (req, res) => {
+  const tenantId = req.user.tenantId;
+  const setupStep = String(req.body?.setupStep || 'BASICO').toUpperCase();
+  const checklist = req.body?.checklist && typeof req.body.checklist === 'object' ? req.body.checklist : {};
+  const completed = Boolean(req.body?.completed);
+  const { rows } = await pool.query(
+    `INSERT INTO onboarding_profiles (barbershop_id, setup_step, checklist_json, completed_at, updated_at)
+     VALUES ($1, $2, $3::jsonb, $4, NOW())
+     ON CONFLICT (barbershop_id)
+     DO UPDATE SET
+       setup_step = EXCLUDED.setup_step,
+       checklist_json = EXCLUDED.checklist_json,
+       completed_at = EXCLUDED.completed_at,
+       updated_at = NOW()
+     RETURNING barbershop_id, setup_step, checklist_json, completed_at`,
+    [tenantId, setupStep, JSON.stringify(checklist), completed ? new Date().toISOString() : null]
+  );
+  return res.json(rows[0]);
+});
+
+app.post('/api/admin/onboarding/import-services', authRequired, barberOnly, async (req, res) => {
+  const tenantId = req.user.tenantId;
+  const raw = String(req.body?.raw || '').trim();
+  if (!raw) return res.status(400).json({ error: 'Informe o conteúdo para importação.' });
+
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) return res.status(400).json({ error: 'Nenhuma linha válida para importar.' });
+
+  const inserted = [];
+  for (const line of lines) {
+    const [nameRaw, priceRaw, minutesRaw] = line.split(';').map((part) => String(part || '').trim());
+    if (!nameRaw) continue;
+    const price = Number(String(priceRaw || '0').replace(',', '.'));
+    const minutes = Number(minutesRaw || 30);
+    if (!Number.isFinite(price) || !Number.isFinite(minutes) || minutes <= 0) continue;
+
+    const { rows } = await pool.query(
+      `INSERT INTO services (barbershop_id, name, price, estimated_minutes, is_active)
+       VALUES ($1, $2, $3, $4, true)
+       RETURNING id, name, price, estimated_minutes`,
+      [tenantId, nameRaw, price, minutes]
+    );
+    inserted.push(rows[0]);
+  }
+
+  return res.status(201).json({ imported: inserted.length, services: inserted });
+});
+
+app.get('/api/admin/calendar', authRequired, barberOnly, async (req, res) => {
+  const tenantId = req.user.tenantId;
+  const view = String(req.query.view || 'week');
+  const start = String(req.query.start || '').trim();
+  if (!start) return res.status(400).json({ error: 'start é obrigatório (YYYY-MM-DD).' });
+
+  const startDate = new Date(`${start}T00:00:00`);
+  if (Number.isNaN(startDate.getTime())) return res.status(400).json({ error: 'start inválido.' });
+  const days = view === 'month' ? 31 : 7;
+  const endDate = new Date(startDate.getTime() + days * 24 * 60 * 60 * 1000);
+
+  const [{ rows: appointments }, { rows: blocks }, { rows: barbers }] = await Promise.all([
+    pool.query(
+      `SELECT a.id, a.barber_id, a.client_id, a.status, a.scheduled_start, a.scheduled_end,
+              u.full_name AS barber_name, c.full_name AS client_name
+       FROM appointments a
+       JOIN users u ON u.id = a.barber_id
+       JOIN users c ON c.id = a.client_id
+       WHERE a.barbershop_id = $1
+         AND a.scheduled_start >= $2
+         AND a.scheduled_start < $3
+       ORDER BY a.scheduled_start ASC`,
+      [tenantId, startDate.toISOString(), endDate.toISOString()]
+    ),
+    pool.query(
+      `SELECT id, barber_id, starts_at, ends_at, reason
+       FROM schedule_blocks
+       WHERE barbershop_id = $1
+         AND starts_at < $3
+         AND ends_at > $2
+       ORDER BY starts_at ASC`,
+      [tenantId, startDate.toISOString(), endDate.toISOString()]
+    ),
+    pool.query(
+      `SELECT u.id, u.full_name
+       FROM users u
+       WHERE u.barbershop_id = $1
+         AND u.role = 'BARBEIRO'
+         AND u.is_active = true
+       ORDER BY u.full_name`,
+      [tenantId]
+    ),
+  ]);
+
+  return res.json({
+    view,
+    start,
+    end: endDate.toISOString().slice(0, 10),
+    barbers,
+    appointments,
+    blocks,
+  });
+});
+
+app.post('/api/admin/calendar/blocks', authRequired, barberOnly, async (req, res) => {
+  const tenantId = req.user.tenantId;
+  const barberId = req.body?.barberId ? Number(req.body.barberId) : null;
+  const startsAt = new Date(String(req.body?.startsAt || ''));
+  const endsAt = new Date(String(req.body?.endsAt || ''));
+  const reason = String(req.body?.reason || '').trim() || null;
+
+  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) {
+    return res.status(400).json({ error: 'Período inválido para bloqueio.' });
+  }
+
+  if (barberId) {
+    const check = await pool.query(
+      `SELECT 1 FROM users WHERE id = $1 AND barbershop_id = $2 AND role = 'BARBEIRO' AND is_active = true`,
+      [barberId, tenantId]
+    );
+    if (!check.rowCount) return res.status(404).json({ error: 'Barbeiro não encontrado.' });
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO schedule_blocks (barbershop_id, barber_id, starts_at, ends_at, reason, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, barber_id, starts_at, ends_at, reason`,
+    [tenantId, barberId, startsAt.toISOString(), endsAt.toISOString(), reason, req.user.id]
+  );
+  return res.status(201).json(rows[0]);
+});
+
+app.delete('/api/admin/calendar/blocks/:id', authRequired, barberOnly, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'ID inválido.' });
+  const { rows } = await pool.query(
+    `DELETE FROM schedule_blocks
+     WHERE id = $1 AND barbershop_id = $2
+     RETURNING id`,
+    [id, req.user.tenantId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Bloqueio não encontrado.' });
+  return res.json({ ok: true, id });
 });
 
 app.get('/api/admin/appointments', authRequired, barberOnly, async (req, res) => {
@@ -1627,6 +1920,8 @@ app.get('/cliente', (_req, res) => res.redirect('/t/navalha-demo/cliente'));
 app.get('/barbearia', (_req, res) => res.redirect('/t/navalha-demo/barbearia'));
 app.get('/t/:tenantSlug/cliente', (_req, res) => res.sendFile(path.join(__dirname, '..', 'frontend', 'cliente', 'index.html')));
 app.get('/t/:tenantSlug/barbearia', (_req, res) => res.sendFile(path.join(__dirname, '..', 'frontend', 'barbearia', 'index.html')));
+app.get('/barbearia/:screen', (_req, res) => res.sendFile(path.join(__dirname, '..', 'frontend', 'barbearia', 'index.html')));
+app.get('/t/:tenantSlug/barbearia/:screen', (_req, res) => res.sendFile(path.join(__dirname, '..', 'frontend', 'barbearia', 'index.html')));
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, '..', 'frontend', 'index.html')));
 app.use((_req, res) => res.redirect('/'));
 

@@ -106,11 +106,27 @@
           <article class="panel info-card">
             <h3>Meta da Semana</h3>
             <p class="meta">Sugestao: manter taxa de no-show abaixo de 8%.</p>
+            <p id="funnelSummary" class="meta">Funil: --</p>
           </article>
           <article class="panel info-card">
             <h3>Foco Comercial</h3>
             <p class="meta">Priorize upgrades de servico nos horarios de maior movimento.</p>
+            <p id="retentionSummary" class="meta">Recorrência: --</p>
           </article>
+        </section>
+
+        <section class="panel reveal">
+          <h2>Métricas Avançadas</h2>
+          <div class="screen-grid-2">
+            <article class="panel inner">
+              <h3>Ticket Médio por Serviço</h3>
+              <div id="ticketByServiceTable" class="table-wrap"></div>
+            </article>
+            <article class="panel inner">
+              <h3>Cohort de Retenção</h3>
+              <div id="cohortTable" class="table-wrap"></div>
+            </article>
+          </div>
         </section>
       </section>
 
@@ -193,6 +209,29 @@
         </section>
 
         <section class="panel reveal">
+          <h2>Onboarding da Barbearia</h2>
+          <p class="meta">Finalize o setup inicial para não travar operação de novos usuários.</p>
+          <div id="onboardingStats" class="meta">Carregando status...</div>
+          <form id="onboardingForm" class="mini-grid">
+            <select id="onboardingStep">
+              <option value="BASICO">BÁSICO</option>
+              <option value="SERVICOS">SERVIÇOS</option>
+              <option value="EQUIPE">EQUIPE</option>
+              <option value="OPERACAO">OPERAÇÃO</option>
+              <option value="COMPLETO">COMPLETO</option>
+            </select>
+            <input id="onboardingChecklist" placeholder='Checklist JSON (ex: {"logo":true,"whatsapp":true})' />
+            <label><input id="onboardingCompleted" type="checkbox" /> Marcar onboarding como concluído</label>
+            <button type="submit" class="cta">Salvar Onboarding</button>
+          </form>
+          <form id="importServicesForm" class="mini-grid">
+            <textarea id="importServicesRaw" rows="5" placeholder="Importar serviços: Nome;Preço;Minutos (1 por linha)"></textarea>
+            <button type="submit" class="ghost">Importar Serviços em Massa</button>
+          </form>
+          <p id="onboardingFeedback" class="feedback"></p>
+        </section>
+
+        <section class="panel reveal">
           <h2>Segurança</h2>
           <p class="meta">Após entrar no sistema, altere sua senha quando quiser.</p>
           <form id="barberChangePasswordForm" class="mini-grid">
@@ -218,6 +257,29 @@
             <button id="reloadAdmin" class="ghost">Atualizar lista</button>
           </div>
           <div id="adminAppointments" class="table-wrap"></div>
+        </section>
+
+        <section class="panel reveal">
+          <h2>Agenda Visual</h2>
+          <form id="calendarFilterForm" class="mini-grid">
+            <select id="calendarView">
+              <option value="week">Semanal</option>
+              <option value="month">Mensal</option>
+            </select>
+            <input id="calendarStart" type="date" />
+            <button type="submit" class="ghost">Carregar Calendário</button>
+          </form>
+          <div id="calendarBoard" class="calendar-board"></div>
+          <h3>Bloquear Horário</h3>
+          <form id="calendarBlockForm" class="mini-grid">
+            <input id="blockBarberId" type="number" placeholder="ID barbeiro (opcional: vazio = geral)" />
+            <input id="blockStart" type="datetime-local" />
+            <input id="blockEnd" type="datetime-local" />
+            <input id="blockReason" placeholder="Motivo do bloqueio" />
+            <button type="submit" class="cta">Criar Bloqueio</button>
+          </form>
+          <div id="calendarBlocksTable" class="table-wrap"></div>
+          <p id="calendarFeedback" class="feedback"></p>
         </section>
       </section>
 

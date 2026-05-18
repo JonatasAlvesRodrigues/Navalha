@@ -54,6 +54,19 @@ const deleteBarbershopBtn = document.getElementById('deleteBarbershopBtn');
 const barberChangePasswordForm = document.getElementById('barberChangePasswordForm');
 const barberPasswordFeedback = document.getElementById('barberPasswordFeedback');
 const ownerCityOptions = document.getElementById('ownerCityOptions');
+const funnelSummary = document.getElementById('funnelSummary');
+const retentionSummary = document.getElementById('retentionSummary');
+const ticketByServiceTable = document.getElementById('ticketByServiceTable');
+const cohortTable = document.getElementById('cohortTable');
+const onboardingStats = document.getElementById('onboardingStats');
+const onboardingForm = document.getElementById('onboardingForm');
+const onboardingFeedback = document.getElementById('onboardingFeedback');
+const importServicesForm = document.getElementById('importServicesForm');
+const calendarFilterForm = document.getElementById('calendarFilterForm');
+const calendarBoard = document.getElementById('calendarBoard');
+const calendarBlockForm = document.getElementById('calendarBlockForm');
+const calendarBlocksTable = document.getElementById('calendarBlocksTable');
+const calendarFeedback = document.getElementById('calendarFeedback');
 
 let session = JSON.parse(localStorage.getItem(`barbearia_session_${tenantSlug}`) || 'null');
 let lastRemoved = null;
@@ -350,6 +363,106 @@ async function loadDashboard() {
   noShow.textContent = data.no_show;
 }
 
+function renderSimpleTable(rows, columns) {
+  if (!rows?.length) return '<p>Sem dados.</p>';
+  const head = `<tr>${columns.map((c) => `<th>${c.label}</th>`).join('')}</tr>`;
+  const body = rows.map((row) => `<tr>${columns.map((c) => `<td>${row[c.key] ?? '-'}</td>`).join('')}</tr>`).join('');
+  return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+
+async function loadAdvancedDashboard() {
+  if (!session?.token || session.user.role !== 'BARBEIRO') return;
+  const data = await fetchJson('/api/dashboard/advanced');
+  if (funnelSummary) {
+    const f = data.funnel || {};
+    funnelSummary.textContent = `Funil (90d): ${f.leads || 0} leads • ${f.agendados || 0} agendados • ${f.concluidos || 0} concluídos • ${f.cancelados || 0} cancelados`;
+  }
+  if (retentionSummary) {
+    const r = data.retention || {};
+    retentionSummary.textContent = `Recorrência: ${r.clientes_recorrentes || 0}/${r.clientes_ativos || 0} clientes (${r.taxa_recorrencia || 0}%)`;
+  }
+  if (ticketByServiceTable) {
+    ticketByServiceTable.innerHTML = renderSimpleTable(
+      (data.ticketByService || []).map((row) => ({ ...row, ticket_medio: brl(row.ticket_medio) })),
+      [
+        { key: 'name', label: 'Serviço' },
+        { key: 'total_usos', label: 'Usos' },
+        { key: 'ticket_medio', label: 'Ticket Médio' },
+      ]
+    );
+  }
+  if (cohortTable) {
+    cohortTable.innerHTML = renderSimpleTable(data.cohorts || [], [
+      { key: 'cohort', label: 'Cohort' },
+      { key: 'mes_uso', label: 'Mês de Uso' },
+      { key: 'clientes', label: 'Clientes' },
+    ]);
+  }
+}
+
+async function loadOnboarding() {
+  if (!session?.token || session.user.role !== 'BARBEIRO' || !onboardingStats) return;
+  const data = await fetchJson('/api/admin/onboarding');
+  const p = data.profile || {};
+  const c = data.counts || {};
+  onboardingStats.textContent = `Etapa: ${p.setup_step || 'BASICO'} • Serviços: ${c.services_count || 0} • Barbeiros: ${c.barbers_count || 0} • Produtos: ${c.products_count || 0} • Concluído: ${p.completed_at ? 'SIM' : 'NÃO'}`;
+  const stepEl = document.getElementById('onboardingStep');
+  const checklistEl = document.getElementById('onboardingChecklist');
+  const completedEl = document.getElementById('onboardingCompleted');
+  if (stepEl) stepEl.value = p.setup_step || 'BASICO';
+  if (checklistEl) checklistEl.value = JSON.stringify(p.checklist_json || {});
+  if (completedEl) completedEl.checked = Boolean(p.completed_at);
+}
+
+function groupCalendarByDay(items = []) {
+  return items.reduce((acc, item) => {
+    const key = new Date(item.scheduled_start || item.starts_at).toISOString().slice(0, 10);
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(item);
+    return acc;
+  }, {});
+}
+
+async function loadVisualCalendar() {
+  if (!session?.token || session.user.role !== 'BARBEIRO' || !calendarBoard) return;
+  const view = document.getElementById('calendarView')?.value || 'week';
+  const start = document.getElementById('calendarStart')?.value;
+  if (!start) return;
+  const data = await fetchJson(`/api/admin/calendar?view=${view}&start=${start}`);
+  const merged = [
+    ...(data.appointments || []).map((a) => ({ ...a, __type: 'appointment' })),
+    ...(data.blocks || []).map((b) => ({ ...b, __type: 'block' })),
+  ];
+  const byDay = groupCalendarByDay(merged);
+  const days = Object.keys(byDay).sort();
+  calendarBoard.innerHTML = days.length ? days.map((day) => `
+    <article class="calendar-day">
+      <h4>${new Date(`${day}T00:00:00`).toLocaleDateString('pt-BR')}</h4>
+      ${byDay[day].map((item) => item.__type === 'block'
+        ? `<div class="calendar-item block"><strong>BLOQUEIO</strong><br>${new Date(item.starts_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} - ${new Date(item.ends_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}<br>${item.reason || 'Sem motivo'}</div>`
+        : `<div class="calendar-item"><strong>${item.client_name}</strong><br>${new Date(item.scheduled_start).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} - ${new Date(item.scheduled_end).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}<br>${item.barber_name} • ${item.status}</div>`
+      ).join('')}
+    </article>
+  `).join('') : '<p>Sem registros no período.</p>';
+
+  calendarBlocksTable.innerHTML = renderSimpleTable(
+    (data.blocks || []).map((b) => ({
+      id: b.id,
+      barber_id: b.barber_id || 'GERAL',
+      periodo: `${new Date(b.starts_at).toLocaleString('pt-BR')} até ${new Date(b.ends_at).toLocaleString('pt-BR')}`,
+      reason: b.reason || '-',
+      acao: `<button class="ghost" onclick="removeCalendarBlock(${b.id})">Remover</button>`,
+    })),
+    [
+      { key: 'id', label: 'ID' },
+      { key: 'barber_id', label: 'Barbeiro' },
+      { key: 'periodo', label: 'Período' },
+      { key: 'reason', label: 'Motivo' },
+      { key: 'acao', label: 'Ação' },
+    ]
+  );
+}
+
 async function loadServices() {
   const allServices = await fetchJson(`/api/services?tenantSlug=${tenantSlug}`);
   servicesGrid.innerHTML = allServices.map((s) => `<article class="card"><h3>${s.name}</h3><p class="price">${brl(s.price)}</p><p class="meta">${s.estimated_minutes} min</p><p>${s.description || ''}</p></article>`).join('');
@@ -537,6 +650,16 @@ window.saveProduct = async (id) => {
   } catch (e) { mgmtFeedback.textContent = e.message; }
 };
 
+window.removeCalendarBlock = async (id) => {
+  try {
+    await fetchJson(`/api/admin/calendar/blocks/${id}`, { method: 'DELETE' });
+    calendarFeedback.textContent = `Bloqueio ${id} removido.`;
+    await loadVisualCalendar();
+  } catch (error) {
+    calendarFeedback.textContent = error.message;
+  }
+};
+
 document.getElementById('addServiceBtn').addEventListener('click', async () => {
   try {
     await fetchJson('/api/admin/services', {
@@ -609,7 +732,7 @@ document.getElementById('loginForm').addEventListener('submit', async (event) =>
     if (session?.user?.role === 'BARBEIRO') {
       gotoScreen('dashboard');
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      const results = await Promise.allSettled([loadBarbers(), loadServices(), loadDashboard(), loadAdminAppointments(), loadProducts()]);
+      const results = await Promise.allSettled([loadBarbers(), loadServices(), loadDashboard(), loadAdvancedDashboard(), loadOnboarding(), loadAdminAppointments(), loadProducts(), loadVisualCalendar()]);
       const failed = results.find((r) => r.status === 'rejected');
       if (failed) {
         authFeedback.textContent = `Conectado como ${session.user.fullName} (${session.user.role}), mas houve falha parcial: ${failed.reason?.message || 'erro desconhecido'}.`;
@@ -650,6 +773,78 @@ ownerLogoutBtn?.addEventListener('click', () => {
   ownerAuthFeedback.textContent = 'Sessão do dono encerrada.';
 });
 document.getElementById('reloadAdmin').addEventListener('click', loadAdminAppointments);
+
+calendarFilterForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    await loadVisualCalendar();
+  } catch (error) {
+    calendarFeedback.textContent = error.message;
+  }
+});
+
+calendarBlockForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    const startRaw = document.getElementById('blockStart').value;
+    const endRaw = document.getElementById('blockEnd').value;
+    if (!startRaw || !endRaw) throw new Error('Informe início e fim do bloqueio.');
+    const payload = {
+      barberId: document.getElementById('blockBarberId').value ? Number(document.getElementById('blockBarberId').value) : null,
+      startsAt: new Date(startRaw).toISOString(),
+      endsAt: new Date(endRaw).toISOString(),
+      reason: document.getElementById('blockReason').value || null,
+    };
+    await fetchJson('/api/admin/calendar/blocks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    calendarFeedback.textContent = 'Bloqueio criado com sucesso.';
+    calendarBlockForm.reset();
+    await loadVisualCalendar();
+  } catch (error) {
+    calendarFeedback.textContent = error.message;
+  }
+});
+
+onboardingForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    const checklistRaw = document.getElementById('onboardingChecklist').value.trim();
+    let checklist = {};
+    if (checklistRaw) checklist = JSON.parse(checklistRaw);
+    await fetchJson('/api/admin/onboarding', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        setupStep: document.getElementById('onboardingStep').value,
+        checklist,
+        completed: document.getElementById('onboardingCompleted').checked,
+      }),
+    });
+    onboardingFeedback.textContent = 'Onboarding atualizado.';
+    await loadOnboarding();
+  } catch (error) {
+    onboardingFeedback.textContent = `Erro no onboarding: ${error.message}`;
+  }
+});
+
+importServicesForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    const raw = document.getElementById('importServicesRaw').value;
+    const result = await fetchJson('/api/admin/onboarding/import-services', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw }),
+    });
+    onboardingFeedback.textContent = `${result.imported} serviço(s) importado(s).`;
+    await Promise.all([loadServices(), loadOnboarding()]);
+  } catch (error) {
+    onboardingFeedback.textContent = `Falha ao importar: ${error.message}`;
+  }
+});
 
 ownerLoginForm?.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -827,12 +1022,18 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
   try {
     updateOwnerUI();
     initScreenNavigation();
+    const calendarStartInput = document.getElementById('calendarStart');
+    if (calendarStartInput && !calendarStartInput.value) {
+      const now = new Date();
+      const offset = now.getTimezoneOffset();
+      calendarStartInput.value = new Date(now.getTime() - offset * 60 * 1000).toISOString().split('T')[0];
+    }
     await loadOwnerCityOptions();
     await Promise.all([loadServices(), loadBarbers()]);
     if (session?.token && session.user.role === 'BARBEIRO') {
       authFeedback.textContent = `Sessão ativa: ${session.user.fullName} (${session.user.role}).`;
       gotoScreen('dashboard', true);
-      const results = await Promise.allSettled([loadServices(), loadBarbers(), loadDashboard(), loadAdminAppointments(), loadProducts()]);
+      const results = await Promise.allSettled([loadServices(), loadBarbers(), loadDashboard(), loadAdvancedDashboard(), loadOnboarding(), loadAdminAppointments(), loadProducts(), loadVisualCalendar()]);
       const failed = results.find((r) => r.status === 'rejected');
       if (failed) {
         authFeedback.textContent = `Sessão ativa com falha parcial: ${failed.reason?.message || 'erro desconhecido'}.`;
