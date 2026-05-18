@@ -1,4 +1,13 @@
-﻿const tenantSlug = window.location.pathname.split('/')[2] || 'navalha-demo';
+﻿const availableScreens = ['inicio', 'dashboard', 'vitrine', 'gestao', 'agendamentos', 'galeria', 'dono'];
+
+function resolveTenantSlug() {
+  const parts = window.location.pathname.split('/').filter(Boolean);
+  if (parts[0] === 't' && parts[1]) return parts[1];
+  if (parts[0] === 'barbearia' && parts[1] && !availableScreens.includes(parts[1])) return parts[1];
+  return 'navalha-demo';
+}
+
+const tenantSlug = resolveTenantSlug();
 
 const servicesGrid = document.getElementById('servicesGrid');
 const barbersGrid = document.getElementById('barbersGrid');
@@ -50,7 +59,6 @@ let session = JSON.parse(localStorage.getItem(`barbearia_session_${tenantSlug}`)
 let lastRemoved = null;
 let ownerRowsCache = [];
 
-const availableScreens = ['inicio', 'dashboard', 'vitrine', 'gestao', 'agendamentos', 'galeria', 'dono'];
 
 function isOwnerSession() {
   return Boolean(session?.token && session?.user?.role === 'DONO_SISTEMA');
@@ -77,6 +85,27 @@ function setActiveScreen(screenName) {
   });
 }
 
+function screenPath(screenName) {
+  return !screenName || screenName === 'inicio' ? '/barbearia' : `/barbearia/${screenName}`;
+}
+
+function getScreenFromPath() {
+  const parts = window.location.pathname.split('/').filter(Boolean);
+  if (parts[0] !== 'barbearia') return 'inicio';
+  const candidate = parts[1] || 'inicio';
+  return availableScreens.includes(candidate) ? candidate : 'inicio';
+}
+
+function gotoScreen(screenName, replace = false) {
+  const target = availableScreens.includes(screenName) ? screenName : 'inicio';
+  const nextPath = screenPath(target);
+  if (window.location.pathname !== nextPath) {
+    if (replace) window.history.replaceState({ screen: target }, '', nextPath);
+    else window.history.pushState({ screen: target }, '', nextPath);
+  }
+  setActiveScreen(target);
+}
+
 function playScreenProgress() {
   if (!screenProgress) return;
   screenProgress.classList.add('active');
@@ -94,23 +123,20 @@ function playScreenProgress() {
 }
 
 function initScreenNavigation() {
-  const screenFromHash = (window.location.hash || '').replace('#', '');
-  setActiveScreen(screenFromHash || 'inicio');
+  gotoScreen(getScreenFromPath(), true);
 
   document.querySelectorAll('.screen-link').forEach((link) => {
     link.addEventListener('click', () => {
       const screen = link.dataset.screen || 'inicio';
       playScreenProgress();
-      setActiveScreen(screen);
-      window.location.hash = screen;
+      gotoScreen(screen);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   });
 
-  window.addEventListener('hashchange', () => {
-    const hashScreen = (window.location.hash || '').replace('#', '');
+  window.addEventListener('popstate', () => {
     playScreenProgress();
-    setActiveScreen(hashScreen || 'inicio');
+    gotoScreen(getScreenFromPath(), true);
   });
 }
 
@@ -213,7 +239,7 @@ function logout() {
   trialFeedback.textContent = '';
   if (barberPasswordFeedback) barberPasswordFeedback.textContent = '';
   updateOwnerUI();
-  setActiveScreen('inicio');
+  gotoScreen('inicio', true);
 }
 
 function ownerTable(rows) {
@@ -258,8 +284,7 @@ window.prefillBarbershopEdit = (id) => {
   document.getElementById('editSubStatus').value = row.subscription_status || '';
   document.getElementById('editSubNotes').value = row.trial_notes || '';
   if (editBarbershopFeedback) editBarbershopFeedback.textContent = `Dados da barbearia ${row.id} carregados para edição.`;
-  setActiveScreen('dono');
-  window.location.hash = 'dono';
+  gotoScreen('dono');
 };
 
 function prefillBarbershopByInputId() {
@@ -582,8 +607,7 @@ document.getElementById('loginForm').addEventListener('submit', async (event) =>
   try {
     await login(document.getElementById('loginEmail').value, document.getElementById('loginPassword').value);
     if (session?.user?.role === 'BARBEIRO') {
-      setActiveScreen('dashboard');
-      window.location.hash = 'dashboard';
+      gotoScreen('dashboard');
       window.scrollTo({ top: 0, behavior: 'smooth' });
       const results = await Promise.allSettled([loadBarbers(), loadServices(), loadDashboard(), loadAdminAppointments(), loadProducts()]);
       const failed = results.find((r) => r.status === 'rejected');
@@ -593,8 +617,7 @@ document.getElementById('loginForm').addEventListener('submit', async (event) =>
     }
     if (isOwnerSession()) {
       await Promise.all([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
-      setActiveScreen('dono');
-      window.location.hash = 'dono';
+      gotoScreen('dono');
     }
   } catch (error) { authFeedback.textContent = error.message; }
 });
@@ -635,8 +658,7 @@ ownerLoginForm?.addEventListener('submit', async (event) => {
       document.getElementById('ownerEmail').value,
       document.getElementById('ownerPassword').value
     );
-    setActiveScreen('dono');
-    window.location.hash = 'dono';
+    gotoScreen('dono');
     const results = await Promise.allSettled([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
     const failed = results.find((r) => r.status === 'rejected');
     if (failed) {
@@ -809,8 +831,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     await Promise.all([loadServices(), loadBarbers()]);
     if (session?.token && session.user.role === 'BARBEIRO') {
       authFeedback.textContent = `Sessão ativa: ${session.user.fullName} (${session.user.role}).`;
-      setActiveScreen('dashboard');
-      window.location.hash = 'dashboard';
+      gotoScreen('dashboard', true);
       const results = await Promise.allSettled([loadServices(), loadBarbers(), loadDashboard(), loadAdminAppointments(), loadProducts()]);
       const failed = results.find((r) => r.status === 'rejected');
       if (failed) {
@@ -819,8 +840,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     }
     if (isOwnerSession()) {
       ownerAuthFeedback.textContent = `Sessão ativa: ${session.user.fullName}.`;
-      setActiveScreen('dono');
-      window.location.hash = 'dono';
+      gotoScreen('dono', true);
       const results = await Promise.allSettled([loadOwnerOverview(), loadOwnerBarbershops(), loadOwnerFinance()]);
       const failed = results.find((r) => r.status === 'rejected');
       if (failed) {
@@ -831,3 +851,5 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     mgmtFeedback.textContent = `Erro ao iniciar app: ${error.message}`;
   }
 })();
+
+

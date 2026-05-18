@@ -549,7 +549,7 @@ th { text-transform: uppercase; color: #c8bcff; font-size: 0.85rem; letter-spaci
   .side-rail { padding: 12px; border-radius: 14px; }
 
   .side-nav {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
 
   .screen-link { white-space: nowrap; padding: 10px 12px; }
