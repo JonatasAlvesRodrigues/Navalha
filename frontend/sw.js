@@ -1,4 +1,4 @@
-﻿const CACHE_VERSION = 'navalha-v4';
+﻿const CACHE_VERSION = 'navalha-v5';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const STATIC_ASSETS = [
   '/',
@@ -67,6 +67,26 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  const isStaticAsset = url.origin === self.location.origin
+    && (url.pathname.endsWith('.css')
+      || url.pathname.endsWith('.js')
+      || url.pathname.endsWith('.html'));
+
+  if (isStaticAsset) {
+    event.respondWith(
+      fetch(req)
+        .then((response) => {
+          if (response && response.ok && !response.redirected) {
+            const copy = response.clone();
+            caches.open(STATIC_CACHE).then((cache) => cache.put(req, copy)).catch(() => null);
+          }
+          return response;
+        })
+        .catch(() => caches.match(req))
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(req).then((cached) => {
       if (cached) return cached;
@@ -80,4 +100,3 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
-

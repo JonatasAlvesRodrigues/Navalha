@@ -66,7 +66,7 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        await navigator.serviceWorker.register('/sw.js?v=4');
+        await navigator.serviceWorker.register('/sw.js?v=5');
       } catch (_err) {
         // noop
       }
