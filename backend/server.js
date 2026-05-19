@@ -11,7 +11,7 @@ require('dotenv').config();
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
-const { jwtSecret, ownerEmail, ownerPassword } = loadSecurityConfig();
+const { jwtSecret, ownerEmail, ownerPassword, ownerAuthEnabled } = loadSecurityConfig();
 const reminderCron = process.env.REMINDER_CRON || '0 9 * * *';
 const reminderTimezone = process.env.REMINDER_TIMEZONE || 'America/Sao_Paulo';
 const reminderProvider = process.env.REMINDER_PROVIDER || 'evolution';
@@ -381,6 +381,10 @@ app.patch('/api/auth/change-password', authRequired, async (req, res) => {
 });
 
 app.post('/api/auth/owner-login', async (req, res) => {
+  if (!ownerAuthEnabled) {
+    return res.status(503).json({ error: 'Login do dono indisponivel. Configure OWNER_EMAIL e OWNER_PASSWORD.' });
+  }
+
   const email = String(req.body?.email || '').trim().toLowerCase();
   const password = String(req.body?.password || '');
   if (!email || !password) return res.status(400).json({ error: 'Email e senha são obrigatórios.' });
@@ -2042,6 +2046,9 @@ ensureOwnerTables()
 
 app.listen(port, () => {
   console.log(`Servidor rodando em http://localhost:${port}`);
+  if (!ownerAuthEnabled) {
+    console.warn('[OWNER AUTH] disabled: configure OWNER_EMAIL and OWNER_PASSWORD to enable /api/auth/owner-login');
+  }
 
   if (enableReminderCron) {
     cron.schedule(

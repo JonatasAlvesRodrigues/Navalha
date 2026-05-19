@@ -6,15 +6,22 @@ function getRequiredEnv(name) {
   return value;
 }
 
+function getOptionalEnv(name) {
+  const value = String(process.env[name] || '').trim();
+  return value || null;
+}
+
 function loadSecurityConfig() {
   const jwtSecret = getRequiredEnv('JWT_SECRET');
-  const ownerEmail = getRequiredEnv('OWNER_EMAIL');
-  const ownerPassword = getRequiredEnv('OWNER_PASSWORD');
+  const ownerEmail = getOptionalEnv('OWNER_EMAIL');
+  const ownerPassword = getOptionalEnv('OWNER_PASSWORD');
+  const ownerAuthEnabled = Boolean(ownerEmail && ownerPassword);
 
-  return { jwtSecret, ownerEmail, ownerPassword };
+  return { jwtSecret, ownerEmail, ownerPassword, ownerAuthEnabled };
 }
 
 module.exports = {
   getRequiredEnv,
+  getOptionalEnv,
   loadSecurityConfig,
 };

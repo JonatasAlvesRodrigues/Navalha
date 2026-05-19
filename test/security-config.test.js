@@ -8,11 +8,11 @@ test('getRequiredEnv retorna valor quando presente', () => {
 });
 
 test('getRequiredEnv falha quando variavel ausente', () => {
-  delete process.env.OWNER_EMAIL;
-  assert.throws(() => getRequiredEnv('OWNER_EMAIL'), /OWNER_EMAIL/);
+  delete process.env.JWT_SECRET;
+  assert.throws(() => getRequiredEnv('JWT_SECRET'), /JWT_SECRET/);
 });
 
-test('loadSecurityConfig exige todos os segredos', () => {
+test('loadSecurityConfig exige JWT e habilita owner auth quando OWNER_* existe', () => {
   process.env.JWT_SECRET = 'jwt-secret';
   process.env.OWNER_EMAIL = 'owner@example.com';
   process.env.OWNER_PASSWORD = 'strong-password';
@@ -21,4 +21,17 @@ test('loadSecurityConfig exige todos os segredos', () => {
   assert.equal(config.jwtSecret, 'jwt-secret');
   assert.equal(config.ownerEmail, 'owner@example.com');
   assert.equal(config.ownerPassword, 'strong-password');
+  assert.equal(config.ownerAuthEnabled, true);
+});
+
+test('loadSecurityConfig desabilita owner auth quando OWNER_* ausente', () => {
+  process.env.JWT_SECRET = 'jwt-secret';
+  delete process.env.OWNER_EMAIL;
+  delete process.env.OWNER_PASSWORD;
+
+  const config = loadSecurityConfig();
+  assert.equal(config.jwtSecret, 'jwt-secret');
+  assert.equal(config.ownerEmail, null);
+  assert.equal(config.ownerPassword, null);
+  assert.equal(config.ownerAuthEnabled, false);
 });
