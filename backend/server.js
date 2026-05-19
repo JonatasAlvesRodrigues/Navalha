@@ -282,52 +282,38 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(400).json({ error: 'telefone/email e senha são obrigatórios.' });
   }
 
-  let rows = [];
+  const globalLookup = await pool.query(
+    `SELECT u.id, u.full_name, u.email, u.phone, u.role, u.password_hash, u.is_active, u.must_change_password,
+            b.id AS tenant_id, b.slug AS tenant_slug
+     FROM users u
+     JOIN barbershops b ON b.id = u.barbershop_id
+     WHERE ((LOWER(COALESCE(u.email, '')) = $1) OR (REGEXP_REPLACE(COALESCE(u.phone, ''), '\\D', '', 'g') = $2))
+       AND u.is_active = true
+       AND b.is_active = true
+     ORDER BY u.id DESC`,
+    [identifierEmail, identifierPhone]
+  );
 
-  if (tenantSlug) {
-    const tenant = await resolveTenantIdBySlug(tenantSlug);
-    if (tenant) {
-      const byTenant = await pool.query(
-        `SELECT u.id, u.full_name, u.email, u.phone, u.role, u.password_hash, u.is_active, u.must_change_password,
-                b.id AS tenant_id, b.slug AS tenant_slug
-         FROM users u
-         JOIN barbershops b ON b.id = u.barbershop_id
-         WHERE ((LOWER(COALESCE(u.email, '')) = $1) OR (REGEXP_REPLACE(COALESCE(u.phone, ''), '\\D', '', 'g') = $2))
-           AND u.barbershop_id = $3
-           AND u.is_active = true`,
-        [identifierEmail, identifierPhone, tenant.id]
-      );
-      rows = byTenant.rows;
-    }
+  const candidates = globalLookup.rows || [];
+  if (!candidates.length) return res.status(401).json({ error: 'Credenciais inválidas.' });
+
+  const validCandidates = [];
+  for (const candidate of candidates) {
+    const validPassword = await bcrypt.compare(password, candidate.password_hash);
+    if (validPassword) validCandidates.push(candidate);
   }
-
-  // Fallback: identifica a barbearia automaticamente quando slug/tenant não bater.
-  if (!rows.length) {
-    const globalLookup = await pool.query(
-      `SELECT u.id, u.full_name, u.email, u.phone, u.role, u.password_hash, u.is_active, u.must_change_password,
-              b.id AS tenant_id, b.slug AS tenant_slug
-       FROM users u
-       JOIN barbershops b ON b.id = u.barbershop_id
-       WHERE ((LOWER(COALESCE(u.email, '')) = $1) OR (REGEXP_REPLACE(COALESCE(u.phone, ''), '\\D', '', 'g') = $2))
-         AND u.is_active = true
-         AND b.is_active = true
-       ORDER BY u.id DESC`,
-      [identifierEmail, identifierPhone]
-    );
-    rows = globalLookup.rows;
-  }
-
-  if (!rows.length) return res.status(401).json({ error: 'Credenciais inválidas.' });
+  if (!validCandidates.length) return res.status(401).json({ error: 'Credenciais inválidas.' });
 
   let user = null;
-  for (const candidate of rows) {
-    const validPassword = await bcrypt.compare(password, candidate.password_hash);
-    if (validPassword) {
-      user = candidate;
-      break;
-    }
+  if (tenantSlug) {
+    user = validCandidates.find((candidate) => candidate.tenant_slug === tenantSlug) || null;
   }
-  if (!user) return res.status(401).json({ error: 'Credenciais inválidas.' });
+  if (!user && validCandidates.length === 1) {
+    user = validCandidates[0];
+  }
+  if (!user) {
+    return res.status(409).json({ error: 'Conta encontrada em outra barbearia. Acesse usando o link/tenant correto.' });
+  }
 
   const token = createToken(user);
   res.json({
