@@ -12,11 +12,16 @@
 2. Ajuste se necessário:
    - `DATABASE_URL=postgresql://postgres@localhost:5432/barbearia`
    - `JWT_SECRET=troque-este-segredo`
+   - `OWNER_EMAIL=seu-email-de-dono@exemplo.com`
+   - `OWNER_PASSWORD=troque-esta-senha`
 
 ## 3) Rodar app
 - `npm install`
 - `npm start`
 - Abra `http://localhost:3000`
+
+## Testes
+- `npm test`
 
 ## Login de demonstração
 - Barbeiro (admin): `carlos@barbearia.com` / `admin123`

@@ -20,6 +20,28 @@ const tenantSlug = window.location.pathname.split('/')[2] || 'navalha-demo';
 
 let session = JSON.parse(localStorage.getItem('session') || 'null');
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function safeImageUrl(value) {
+  const fallback = 'https://picsum.photos/500/300?blur=1';
+  try {
+    const parsed = new URL(String(value || ''), window.location.origin);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.href;
+    }
+    return fallback;
+  } catch (_error) {
+    return fallback;
+  }
+}
+
 function brl(v) {
   return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
@@ -69,15 +91,15 @@ async function loadServices() {
   const allServices = await fetchJson(`/api/services?tenantSlug=${tenantSlug}`);
   servicesGrid.innerHTML = allServices.map((s) => `
     <article class="card">
-      <h3>${s.name}</h3>
+      <h3>${escapeHtml(s.name)}</h3>
       <p class="price">${brl(s.price)}</p>
-      <p class="meta">${s.estimated_minutes} min</p>
-      <p>${s.description || ''}</p>
+      <p class="meta">${Number(s.estimated_minutes || 0)} min</p>
+      <p>${escapeHtml(s.description || '')}</p>
     </article>
   `).join('');
 
   servicesSelect.innerHTML = allServices
-    .map((s) => `<option value="${s.id}">${s.name} - ${brl(s.price)} (${s.estimated_minutes} min)</option>`)
+    .map((s) => `<option value="${Number(s.id)}">${escapeHtml(s.name)} - ${brl(s.price)} (${Number(s.estimated_minutes || 0)} min)</option>`)
     .join('');
 }
 
@@ -89,16 +111,16 @@ async function loadBarbers() {
 
   barbersGrid.innerHTML = barbers.map((b) => `
     <article class="card">
-      <h3>${b.full_name}</h3>
-      <p class="meta">Comissão fixa: ${b.commission_percent}%</p>
-      <p class="meta">Contato: ${b.phone || '-'}</p>
+      <h3>${escapeHtml(b.full_name)}</h3>
+      <p class="meta">Comissão fixa: ${Number(b.commission_percent || 0)}%</p>
+      <p class="meta">Contato: ${escapeHtml(b.phone || '-')}</p>
       <p class="meta">WhatsApp: ${normalizePhone(b.whatsapp || b.phone) ? `<a href="https://wa.me/55${normalizePhone(b.whatsapp || b.phone)}" target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a>` : '-'}</p>
-      <p class="meta">Instagram: ${normalizeInstagram(b.instagram) ? `<a href="https://instagram.com/${normalizeInstagram(b.instagram)}" target="_blank" rel="noopener noreferrer">@${normalizeInstagram(b.instagram)}</a>` : '-'}</p>
+      <p class="meta">Instagram: ${normalizeInstagram(b.instagram) ? `<a href="https://instagram.com/${encodeURIComponent(normalizeInstagram(b.instagram))}" target="_blank" rel="noopener noreferrer">@${escapeHtml(normalizeInstagram(b.instagram))}</a>` : '-'}</p>
     </article>
   `).join('');
 
   barberSelect.innerHTML = '<option value="">Selecione...</option>' + barbers
-    .map((b) => `<option value="${b.id}">${b.full_name}</option>`)
+    .map((b) => `<option value="${Number(b.id)}">${escapeHtml(b.full_name)}</option>`)
     .join('');
 }
 
@@ -113,7 +135,7 @@ async function loadSlots() {
 
   const data = await fetchJson(`/api/appointments/available-slots?tenantSlug=${tenantSlug}&barberId=${barberId}&date=${date}`);
   slotSelect.innerHTML = data.slots.length
-    ? data.slots.map((s) => `<option value="${s}">${s}</option>`).join('')
+    ? data.slots.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')
     : '<option value="">Sem horários</option>';
 }
 
@@ -126,8 +148,8 @@ async function loadGallery(clientId) {
 
   galleryGrid.innerHTML = photos.map((photo) => `
     <article class="photo">
-      <img src="${photo.image_url}" alt="Corte do cliente" onerror="this.src='https://picsum.photos/500/300?blur=1'" />
-      <p>${photo.caption || 'Sem descrição'}</p>
+      <img src="${safeImageUrl(photo.image_url)}" alt="Corte do cliente" />
+      <p>${escapeHtml(photo.caption || 'Sem descrição')}</p>
     </article>
   `).join('');
 }
@@ -148,13 +170,13 @@ function adminTable(rows) {
         ${rows.map((r) => `
           <tr>
             <td>${r.id}</td>
-            <td>${r.client_name}</td>
-            <td>${r.barber_name}</td>
+            <td>${escapeHtml(r.client_name)}</td>
+            <td>${escapeHtml(r.barber_name)}</td>
             <td>${new Date(r.scheduled_start).toLocaleString('pt-BR')}</td>
             <td>${brl(r.total)}</td>
-            <td>${r.status}</td>
+            <td>${escapeHtml(r.status)}</td>
             <td>
-              <select data-id="${r.id}" class="status-select">
+              <select data-id="${Number(r.id)}" class="status-select">
                 ${['PENDENTE', 'PAGO', 'NO_SHOW', 'CONCLUIDO', 'CANCELADO'].map((s) => `<option ${s === r.status ? 'selected' : ''}>${s}</option>`).join('')}
               </select>
             </td>
@@ -260,7 +282,7 @@ loadGalleryBtn.addEventListener('click', async () => {
   try {
     await loadGallery(clientId);
   } catch (error) {
-    galleryGrid.innerHTML = `<p>${error.message}</p>`;
+    galleryGrid.textContent = error.message;
   }
 });
 

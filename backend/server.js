@@ -6,18 +6,17 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const pool = require('./db');
 const { analyzeClientRecurrenceAndNotify, runDailyReminderSweep } = require('./reminderService');
+const { loadSecurityConfig } = require('./securityConfig');
 require('dotenv').config();
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
-const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change-me';
+const { jwtSecret, ownerEmail, ownerPassword } = loadSecurityConfig();
 const reminderCron = process.env.REMINDER_CRON || '0 9 * * *';
 const reminderTimezone = process.env.REMINDER_TIMEZONE || 'America/Sao_Paulo';
 const reminderProvider = process.env.REMINDER_PROVIDER || 'evolution';
 const reminderThreshold = Number(process.env.REMINDER_THRESHOLD_DAYS_BEFORE || 2);
 const enableReminderCron = String(process.env.REMINDER_CRON_ENABLED || 'true') === 'true';
-const ownerEmail = process.env.OWNER_EMAIL || 'jonatasalves2005rodrigues@gmail.com';
-const ownerPassword = process.env.OWNER_PASSWORD || '91280057';
 
 app.use(cors());
 app.use(express.json());
