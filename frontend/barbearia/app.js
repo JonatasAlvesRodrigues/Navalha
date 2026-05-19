@@ -260,7 +260,7 @@ function logout() {
 
 function ownerTable(rows) {
   if (!rows.length) return '<p>Nenhuma barbearia cadastrada.</p>';
-  return `<table><thead><tr><th>ID</th><th>Nome</th><th>Cidade</th><th>Slug</th><th>Ativa</th><th>Dono</th><th>Plano</th><th>Preço</th><th>Status</th><th>Trial até</th><th>Ação</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r.id}</td><td>${r.name}</td><td>${r.city || '-'}</td><td>${r.slug}</td><td>${r.is_active ? 'SIM' : 'NAO'}</td><td>${r.owner_full_name || '-'}</td><td>${r.plan_name || 'TRIAL'}</td><td>${brl(r.monthly_price || 0)}</td><td>${r.subscription_status || 'TRIAL'}</td><td>${r.trial_ends_at ? new Date(r.trial_ends_at).toLocaleDateString('pt-BR') : '-'}</td><td><button class="ghost" type="button" onclick="prefillBarbershopEdit(${r.id})">Editar</button></td></tr>`).join('')}</tbody></table>`;
+  return `<table><thead><tr><th>ID</th><th>Nome</th><th>Cidade</th><th>Slug</th><th>Ativa</th><th>Dono</th><th>Plano</th><th>Preço</th><th>Status</th><th>Trial até</th><th>Ação</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r.id}</td><td>${r.name}</td><td>${r.city || '-'}</td><td>${r.slug}</td><td>${r.is_active ? 'SIM' : 'NAO'}</td><td>${r.owner_full_name || '-'}</td><td>${r.plan_name || 'TRIAL'}</td><td>${brl(r.monthly_price || 0)}</td><td>${r.subscription_status || 'TRIAL'}</td><td>${r.trial_ends_at ? new Date(r.trial_ends_at).toLocaleDateString('pt-BR') : '-'}</td><td><button class="ghost js-owner-edit-btn" type="button" data-shop-id="${r.id}">Editar</button></td></tr>`).join('')}</tbody></table>`;
 }
 
 async function loadOwnerOverview() {
@@ -280,7 +280,8 @@ async function loadOwnerBarbershops() {
 }
 
 window.prefillBarbershopEdit = (id) => {
-  const row = ownerRowsCache.find((item) => item.id === Number(id));
+  const targetId = Number(id);
+  const row = ownerRowsCache.find((item) => Number(item.id) === targetId);
   if (!row) {
     if (editBarbershopFeedback) editBarbershopFeedback.textContent = `Barbearia ${id} não encontrada na lista atual.`;
     return;
@@ -301,6 +302,7 @@ window.prefillBarbershopEdit = (id) => {
   document.getElementById('editSubNotes').value = row.trial_notes || '';
   if (editBarbershopFeedback) editBarbershopFeedback.textContent = `Dados da barbearia ${row.id} carregados para edição.`;
   gotoScreen('dono');
+  editBarbershopForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
 function prefillBarbershopByInputId() {
@@ -1058,6 +1060,17 @@ editBarbershopForm?.addEventListener('submit', async (event) => {
 
 editShopIdInput?.addEventListener('input', () => {
   prefillBarbershopByInputId();
+});
+
+ownerBarbershopsTable?.addEventListener('click', (event) => {
+  const button = event.target.closest('.js-owner-edit-btn');
+  if (!button) return;
+  const id = Number(button.dataset.shopId);
+  if (!id) {
+    if (editBarbershopFeedback) editBarbershopFeedback.textContent = 'ID da barbearia inválido para edição.';
+    return;
+  }
+  window.prefillBarbershopEdit(id);
 });
 
 blockBarbershopBtn?.addEventListener('click', async () => {
